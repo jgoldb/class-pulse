@@ -1,0 +1,45 @@
+{
+  "name": "class-pulse",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Role-scoped behavior-support planning with a deterministic pattern engine and a human-gated LLM layer.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace apps/api & npm run dev --workspace apps/web",
+    "dev:api": "npm run dev --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p packages/domain && tsc -p packages/policy && tsc -p packages/ai && tsc -p packages/patterns && tsc -p apps/api && tsc -p apps/web",
+    "lint": "eslint .",
+    "e2e": "playwright test",
+    "e2e:fast": "E2E_SKIP_SEED=1 playwright test",
+    "e2e:report": "playwright show-report e2e/report",
+    "evals": "npm run evals --workspace packages/ai",
+    "evals:patterns": "npm run evals --workspace packages/patterns",
+    "db:generate": "npm run db:generate --workspace apps/api",
+    "seed": "npm run seed --workspace apps/api"
+  },
+  "devDependencies": {
+    "@clerk/testing": "^2.2.36",
+    "@eslint/js": "^9.30.0",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.15.0",
+    "eslint": "^9.30.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@neon/config": "^1.7.2",
+    "@neon/env": "^1.4.3"
+  }
+}

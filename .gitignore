@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+.pglite/
+apps/api/data/
+apps/web/dist/
+coverage/
+eval-reports/
+.DS_Store
+.idea/
+e2e/results/
+e2e/report/
+e2e/screenshots/
+.agents/
+.neon

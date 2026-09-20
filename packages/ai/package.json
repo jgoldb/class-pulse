@@ -1,0 +1,23 @@
+{
+  "name": "@class-pulse/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./pii": "./src/pii/index.ts",
+    "./evals": "./src/evals/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "evals": "tsx src/evals/cli.ts"
+  },
+  "dependencies": {
+    "@class-pulse/domain": "*",
+    "openai": "^6.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0"
+  }
+}

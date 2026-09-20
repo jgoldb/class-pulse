@@ -21,7 +21,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/auth/me', async (req) => {
     const actor = req.actor;
     if (!actor) {
-      return { authenticated: !!req.subject, provisioned: false, posture: ctx.config.deploymentPosture };
+      return { authenticated: !!req.subject, provisioned: false, posture: ctx.config.deploymentPosture, modelEnabled: ctx.aiConfig.provider !== 'off' };
     }
     const sectionIds = [...actor.scope.teacherSectionIds];
     const sections = sectionIds.length ? await ctx.db.select().from(classSections).where(inArray(classSections.id, sectionIds)) : [];
@@ -32,6 +32,8 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext) {
       authenticated: true,
       provisioned: true,
       posture: ctx.config.deploymentPosture,
+      // AI_PROVIDER=off: every surface that reaches the model will refuse, so the UI says so up front.
+      modelEnabled: ctx.aiConfig.provider !== 'off',
       user: { id: actor.userId, email: actor.email, displayName: actor.displayName },
       roles: [...actor.roles],
       assignments: actor.assignments,

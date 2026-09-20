@@ -65,10 +65,13 @@ model provider) and switches to real Postgres, Redis and the OpenAI API by envir
   `egress_log` row with the payload that would have been sent, its hash, the prompt version and
   the surface — turning the model off leaves a record of what was asked of it rather than a blind
   spot. The error is non-retryable, so a generation gives up after one attempt instead of
-  spending a second call. `npm run seed` and `npm run evals` refuse to start, the latter meaning
-  prompt promotion is impossible while the switch is on. What the switch does *not* do is make
-  the off state legible in the UI: a teacher sees a generation that failed, with the reason in
-  the error text, not a considered "AI is turned off here" empty state. That remains open.
+  spending a second call. `npm run seed` and `npm run evals` refuse to start, and so does the
+  admin page's eval runner (`POST /api/admin/prompts/:id/evals` returns 409): with the model off
+  every case fails for the same uninteresting reason while the two `blocked_by_gate` cases still
+  pass, because the gate blocks them before the provider is reached — a 2/20 score that says
+  nothing about the prompt. Prompt promotion is therefore impossible while the switch is on.
+  `/auth/me` carries `modelEnabled`, and `AppShell` renders a banner on every surface naming what
+  will not run and what is unaffected, so the off state is not mistaken for a broken deployment.
 - **Two prompts were needed for `review_narration` and `guardrail_classifier`** on top of the
   two surfaces named in doc 03; the registry has five surfaces.
 

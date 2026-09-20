@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { UserButton } from '@clerk/react';
-import { Activity, BarChart3, BookOpen, ClipboardList, Heart, Home, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareWarning, Moon, Plus, Search, Settings2, ShieldCheck, Sparkles, Sun, Users, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, BookOpen, ClipboardList, Heart, Home, Inbox, LayoutDashboard, LogOut, Menu, MessageSquareWarning, Moon, Plus, PowerOff, Search, Settings2, ShieldCheck, Sparkles, Sun, Users, type LucideIcon } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { applyTheme, resolveTheme, storedTheme, type Theme } from '../lib/theme';
 import { Badge, Button, Dialog, Kbd, PageTransition, SheetContent, Tooltip, cn } from './ui';
@@ -79,6 +79,29 @@ function Brand({ compact }: { compact?: boolean }) {
         <Activity className="size-4" />
       </span>
       {!compact && <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>}
+    </div>
+  );
+}
+
+/**
+ * Shown on every page when the deployment runs with AI_PROVIDER=off. Without it the model being
+ * switched off is indistinguishable from it being broken: drafts fail, evals fail, and nothing
+ * says why. Everything that does not touch the model — logging signals, the pattern engine,
+ * reviewing and approving existing plans — keeps working, so the banner says that too.
+ */
+function ModelOffBanner() {
+  const { me } = useAuth();
+  if (me?.modelEnabled !== false) return null;
+  const admin = me.roles?.includes('administrator');
+  return (
+    <div className="no-print mb-4 flex items-start gap-3 rounded-md border border-warning/30 bg-warning-soft p-3 text-warning-fg" role="status" data-testid="model-off-banner">
+      <PowerOff className="mt-0.5 size-4 shrink-0" />
+      <div className="text-xs leading-relaxed">
+        <span className="font-semibold">AI features are turned off for this deployment.</span>{' '}
+        Drafting a plan, interpreting a pattern and narrating a review will not run, and nothing is sent to the model.
+        Logging signals, the pattern engine and reviewing existing plans are unaffected.
+        {admin && ' Evals cannot run, so prompt promotion is blocked until the model is turned back on.'}
+      </div>
     </div>
   );
 }
@@ -189,6 +212,7 @@ export function AppShell({ surface, counts = {}, primaryAction }: { surface: Sur
 
       {/* Content */}
       <main className={cn('mx-auto w-full max-w-6xl px-4 pb-[calc(var(--bottom-nav)+2.5rem)] pt-4 sm:px-6 lg:pl-[17rem] lg:pr-8 lg:pt-6', student && 'max-w-3xl')}>
+        <ModelOffBanner />
         <PageTransition>
           <Outlet />
         </PageTransition>

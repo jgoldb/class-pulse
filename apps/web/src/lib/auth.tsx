@@ -7,6 +7,8 @@ export interface Me {
   authenticated: boolean;
   provisioned: boolean;
   posture: 'demonstration' | 'operational';
+  /** False when the deployment runs with AI_PROVIDER=off: anything that reaches the model refuses. */
+  modelEnabled?: boolean;
   user?: { id: string; email: string; displayName: string };
   roles?: string[];
   assignments?: Array<{ role: string; sectionId: string | null; studentId: string | null; schoolId: string | null }>;

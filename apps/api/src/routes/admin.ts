@@ -5,7 +5,7 @@ import { AI_SURFACES, PATTERN_DEFINITION_STATUSES, newId, type PromptVersion } f
 import { runEvals } from '@class-pulse/ai/evals';
 import { modelResolverFromConfig } from '@class-pulse/ai';
 import type { AppContext } from '../context';
-import { badRequest, forbidden } from '../context';
+import { badRequest, conflict, forbidden } from '../context';
 import { classSections, egressLog, jobs, roleAssignments, sectionEnrollments, students, users } from '../db/schema';
 import { auditViewer, catalogHealth, draftDiffAggregate, equityMonitor, quickEntryHealth, trends } from '../services/admin';
 import { audit } from '../services/audit';
@@ -61,6 +61,11 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Run the eval suite against a prompt version and record the result (the promotion gate). */
   app.post('/api/admin/prompts/:id/evals', async (req) => {
     const { id } = Id.parse(req.params);
+    // With the model off every case fails for the same uninteresting reason, and the two
+    // gate-blocking cases still pass — a misleading score. Refuse instead of recording it.
+    if (ctx.aiConfig.provider === 'off') {
+      throw conflict('The model is turned off for this deployment (AI_PROVIDER=off), so the eval suite cannot run. Prompt promotion stays blocked until it is turned back on.');
+    }
     const prompt = await promptBody(ctx.db, id);
     const { judge } = z.object({ judge: z.boolean().default(true) }).parse(req.body ?? {});
     const report = await runEvals({

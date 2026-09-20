@@ -361,3 +361,48 @@ describe('Phase 7: administration', () => {
     expect(diffs.body.approvedPlans).toBe(1);
   }, 60_000);
 });
+
+/**
+ * The model kill switch, from the API's side. This needs its own app because the provider is
+ * resolved once at boot, so it cannot share the suite's mock-backed instance.
+ */
+describe('AI_PROVIDER=off', () => {
+  let offApp: AppHandle;
+  let offServer: FastifyInstance;
+
+  beforeAll(async () => {
+    offApp = await createApp({
+      env: { ...process.env, NODE_ENV: 'test', AI_PROVIDER: 'off', AUTH_PROVIDER: 'dev', DATABASE_URL: '', OPENAI_API_KEY: '' },
+      memory: true,
+      pollMs: 60_000,
+    });
+    offServer = await buildServer(offApp.ctx, { logger: false });
+    await offApp.ctx.db.insert(organizations).values({ id: 'org', name: 'Org' });
+    await offApp.ctx.db.insert(schools).values({ id: S.school, orgId: 'org', name: 'School' });
+    await offApp.ctx.db.insert(users).values({ id: 'u-a', email: 'admin@test.school', displayName: 'Admin' });
+    await offApp.ctx.db.insert(roleAssignments).values({ id: newId(), userId: 'u-a', role: 'administrator', schoolId: S.school, sectionId: null, studentId: null });
+  });
+
+  afterAll(async () => {
+    await offServer.close();
+    await offApp.close();
+  });
+
+  it('boots with no API key and reports the model as disabled', async () => {
+    expect(offApp.ctx.gate.providerName).toBe('disabled');
+    const health = await offServer.inject({ method: 'GET', url: '/health' });
+    expect(health.json().provider).toBe('disabled');
+  });
+
+  it('tells every client the model is off via /auth/me', async () => {
+    const admin = await offServer.inject({ method: 'GET', url: '/auth/me', headers: { authorization: 'Test u-a' } });
+    expect(admin.statusCode).toBe(200);
+    expect(admin.json().modelEnabled).toBe(false);
+  });
+
+  it('refuses to run evals instead of reporting a misleading score', async () => {
+    const res = await offServer.inject({ method: 'POST', url: '/api/admin/prompts/plan_generation.v1/evals', payload: { judge: false }, headers: { authorization: 'Test u-a' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain('AI_PROVIDER=off');
+  });
+});

@@ -37,8 +37,10 @@ npm run deploy          # fly deploy + the VITE_CLERK_PUBLISHABLE_KEY build arg 
 
 `AI_PROVIDER=off` turns the model off for a whole deployment (`fly secrets set AI_PROVIDER=off`,
 which restarts the machine). Every call then fails as a non-retryable provider error and still
-writes its `egress_log` row; `/health` reports `provider: "disabled"`. The seed and the evals
-refuse to start, so prompt promotion is blocked while it is on. See `docs/08`.
+writes its `egress_log` row; `/health` reports `provider: "disabled"` and `/auth/me` carries
+`modelEnabled: false`, which `AppShell` turns into a banner on every surface. The seed, `npm run
+evals` and the admin eval runner all refuse to start, so prompt promotion is blocked while it is
+on. See `docs/08`.
 
 ## Verifying UI work
 

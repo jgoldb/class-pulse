@@ -16,12 +16,12 @@ export type JobHandler = (job: JobEnvelope) => Promise<void>;
 
 /**
  * Generation calls and the nightly sweep never run inside a request handler (docs/05
- * "Generation service"). Two drivers behind one interface:
- *  - inprocess: a durable, DB-backed queue polled inside the API process (default; no Redis)
- *  - bullmq:    BullMQ over Redis for multi-process deployments (JOB_DRIVER=bullmq + REDIS_URL)
+ * "Generation service"). One driver: a durable, Postgres-backed queue polled inside the API
+ * process. Redis/BullMQ was dropped (docs/08) — one API instance is the deployment shape, and
+ * a DB-backed queue survives restarts without a second service to run.
  */
 export interface JobQueue {
-  readonly driver: 'inprocess' | 'bullmq';
+  readonly driver: 'inprocess';
   enqueue(type: JobType, payload: Record<string, unknown>, opts?: { delayMs?: number; dedupeKey?: string }): Promise<string>;
   start(handler: JobHandler): Promise<void>;
   stop(): Promise<void>;

@@ -179,6 +179,32 @@ body {
   color: var(--primary-soft-fg);
 }
 
+/*
+ * The mobile tab bar in AppShell is fixed to the bottom of the viewport, so a screen with its
+ * own fixed bottom bar (quick entry's Save bar) has to sit above it rather than under it.
+ * --bottom-nav is the tab bar's height; it also sizes the tab bar, so the two cannot drift.
+ * --safe-bottom is the part of the device safe area a screen still has to pad for itself —
+ * zero while the tab bar is there, because the tab bar already covers it.
+ * AppShell puts .with-bottom-nav on the app root only on surfaces that render the tab bar;
+ * both values fall back to "no tab bar" everywhere else, and at lg and up where it is hidden.
+ */
+:root {
+  --bottom-nav: 0px;
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+
+.with-bottom-nav {
+  --bottom-nav: calc(3.375rem + env(safe-area-inset-bottom));
+  --safe-bottom: 0px;
+}
+
+@media (width >= 64rem) {
+  .with-bottom-nav {
+    --bottom-nav: 0px;
+    --safe-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 *:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;

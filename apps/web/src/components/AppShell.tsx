@@ -91,6 +91,8 @@ export function AppShell({ surface, counts = {}, primaryAction }: { surface: Sur
   const [paletteOpen, setPaletteOpen] = useState(false);
   const items = NAV[surface];
   const student = surface === 'student';
+  // Surfaces with a single destination get no bottom tab bar, so nothing has to clear it.
+  const bottomNav = items.length > 1;
 
   useEffect(() => setMobileOpen(false), [loc.pathname]);
   useEffect(() => {
@@ -125,7 +127,7 @@ export function AppShell({ surface, counts = {}, primaryAction }: { surface: Sur
     });
 
   return (
-    <div className={cn('min-h-dvh', student && 'bg-gradient-to-b from-primary-soft/50 via-bg to-bg')}>
+    <div className={cn('min-h-dvh', bottomNav && 'with-bottom-nav', student && 'bg-gradient-to-b from-primary-soft/50 via-bg to-bg')}>
       {/* Desktop sidebar */}
       <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-border bg-elevated/80 backdrop-blur lg:flex">
         <div className="flex h-14 items-center px-4">
@@ -186,15 +188,15 @@ export function AppShell({ surface, counts = {}, primaryAction }: { surface: Sur
       </Dialog>
 
       {/* Content */}
-      <main className={cn('mx-auto w-full max-w-6xl px-4 pb-24 pt-4 sm:px-6 lg:pb-10 lg:pl-[17rem] lg:pr-8 lg:pt-6', student && 'max-w-3xl')}>
+      <main className={cn('mx-auto w-full max-w-6xl px-4 pb-[calc(var(--bottom-nav)+2.5rem)] pt-4 sm:px-6 lg:pl-[17rem] lg:pr-8 lg:pt-6', student && 'max-w-3xl')}>
         <PageTransition>
           <Outlet />
         </PageTransition>
       </main>
 
       {/* Mobile bottom tabs */}
-      {items.length > 1 && (
-        <nav className="no-print fixed inset-x-0 bottom-0 z-30 grid border-t border-border bg-elevated/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}>
+      {bottomNav && (
+        <nav className="no-print fixed inset-x-0 bottom-0 z-30 grid h-[var(--bottom-nav)] border-t border-border bg-elevated/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}>
           {items.slice(0, 5).map((i) => {
             const count = i.badgeKey ? counts[i.badgeKey] : undefined;
             return (

@@ -25,4 +25,15 @@ test('quick entry: two taps and a save, timed', async ({ page, signInAs }, info)
   const dir = `e2e/screenshots/${info.project.name}`;
   mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: `${dir}/18-teacher-quick-entry-after-save.png`, fullPage: true });
+
+  // Outside the timed run: the Save bar and the shell's mobile tab bar are both fixed to the
+  // bottom of the viewport, so the primary action has to be the element at its own centre rather
+  // than the navigation underneath it. One tap first — a disabled Save is pointer-events:none.
+  await plus.click();
+  const saveOwnsItsCentre = await page.getByTestId('save-entry').evaluate((btn) => {
+    const r = btn.getBoundingClientRect();
+    const el = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+    return el === btn || btn.contains(el);
+  });
+  expect(saveOwnsItsCentre).toBe(true);
 });

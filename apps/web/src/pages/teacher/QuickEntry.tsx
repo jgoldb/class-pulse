@@ -196,7 +196,7 @@ export function QuickEntry() {
         )}
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-elevated/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur lg:left-60">
+      <div className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-20 border-t border-border bg-elevated/95 p-3 pb-[calc(var(--safe-bottom)+12px)] backdrop-blur lg:left-60">
         <div className="mx-auto flex max-w-md items-center gap-3">
           <div className="min-w-0 flex-1">
             <Badge tone={total ? 'primary' : 'neutral'}>{total} to save</Badge>

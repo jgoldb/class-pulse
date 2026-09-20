@@ -2,8 +2,9 @@ app = 'class-pulse'
 primary_region = 'ord'
 
 [build]
-  # VITE_CLERK_PUBLISHABLE_KEY is passed at deploy time:
-  #   fly deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_...
+  # VITE_CLERK_PUBLISHABLE_KEY is passed at deploy time. Use `npm run deploy`, which reads it from
+  # the environment or the root .env and forwards it; a bare `fly deploy` fails without it.
+  #   npm run deploy                 (equivalently: fly deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_...)
   # It is a publishable key, inlined into the client bundle by Vite, so it is not a secret.
 
 [env]

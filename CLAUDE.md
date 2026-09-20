@@ -31,7 +31,14 @@ npm run e2e             # Playwright on :3011/:5174 against DATABASE_URL_E2E; e2
 npm run evals           # EVAL_PROMPT_VERSION=N to test a draft prompt
 npm run db:generate     # after editing apps/api/src/db/schema.ts (drizzle-kit prompts on renames:
                         # add tables in one generate, drop in a second)
+npm run deploy          # fly deploy + the VITE_CLERK_PUBLISHABLE_KEY build arg the Dockerfile
+                        # requires; a bare `fly deploy` fails. Extra flags pass through after --
 ```
+
+`AI_PROVIDER=off` turns the model off for a whole deployment (`fly secrets set AI_PROVIDER=off`,
+which restarts the machine). Every call then fails as a non-retryable provider error and still
+writes its `egress_log` row; `/health` reports `provider: "disabled"`. The seed and the evals
+refuse to start, so prompt promotion is blocked while it is on. See `docs/08`.
 
 ## Verifying UI work
 

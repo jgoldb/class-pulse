@@ -1,12 +1,14 @@
 import type { AiSurface, PromptVersion } from '@class-pulse/domain';
 import { OpenAIProvider } from './openai';
 import { MockProvider, type MockScenario } from './mock';
+import { DisabledProvider } from './disabled';
 import type { ModelProvider, ReasoningEffort } from './provider';
 import type { ModelResolution } from './gate';
 
 export * from './provider';
 export * from './gate';
 export { MockProvider, type MockScenario } from './mock';
+export { DisabledProvider, DISABLED_MESSAGE } from './disabled';
 export { OpenAIProvider } from './openai';
 
 export interface AiEnv {
@@ -34,7 +36,7 @@ function effort(v: string | undefined, fallback: ReasoningEffort): ReasoningEffo
 }
 
 export interface AiConfig {
-  provider: 'openai' | 'mock';
+  provider: 'openai' | 'mock' | 'off';
   model: string;
   reasoningEffort: ReasoningEffort;
   classifierModel: string;
@@ -45,10 +47,13 @@ export interface AiConfig {
 
 export function aiConfigFromEnv(env: AiEnv = process.env as AiEnv): AiConfig {
   const model = env.OPENAI_MODEL?.trim() || DEFAULT_MODEL;
-  // The mock provider is a test double, honoured only under NODE_ENV=test. Everything else is the real model.
+  // The mock provider is a test double, honoured only under NODE_ENV=test. `off` is the
+  // deployment kill switch and is honoured everywhere: it fabricates nothing, it only refuses.
+  // Everything else is the real model.
   const testMode = (env as NodeJS.ProcessEnv).NODE_ENV === 'test';
+  const requested = env.AI_PROVIDER?.trim();
   return {
-    provider: testMode && env.AI_PROVIDER === 'mock' ? 'mock' : 'openai',
+    provider: requested === 'off' ? 'off' : testMode && requested === 'mock' ? 'mock' : 'openai',
     model,
     reasoningEffort: effort(env.OPENAI_REASONING_EFFORT, DEFAULT_REASONING_EFFORT),
     classifierModel: env.OPENAI_CLASSIFIER_MODEL?.trim() || model,
@@ -60,6 +65,8 @@ export function aiConfigFromEnv(env: AiEnv = process.env as AiEnv): AiConfig {
 
 export function providerFromEnv(env: AiEnv = process.env as AiEnv): ModelProvider {
   const cfg = aiConfigFromEnv(env);
+  // No API key is required to keep the lights on with the model off, so the app still boots.
+  if (cfg.provider === 'off') return new DisabledProvider();
   if (cfg.provider === 'openai') {
     return new OpenAIProvider({
       apiKey: env.OPENAI_API_KEY ?? '',

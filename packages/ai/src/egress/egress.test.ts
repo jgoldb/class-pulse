@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { EgressGate, type EgressLogEntry } from './gate';
 import { MockProvider } from './mock';
-import { aiConfigFromEnv, modelResolverFromConfig } from './index';
+import type { ModelProvider } from './provider';
+import { DisabledProvider } from './disabled';
+import { aiConfigFromEnv, modelResolverFromConfig, providerFromEnv } from './index';
 
 const REPO_ROOT = resolve(__dirname, '../../../..');
 const ALLOWED = new Set(['packages/ai/src/egress/openai.ts']);
@@ -32,7 +34,7 @@ describe('egress invariant (docs/04): only the gate imports the provider SDK', (
   });
 });
 
-function makeGate(logs: EgressLogEntry[], provider = new MockProvider()) {
+function makeGate(logs: EgressLogEntry[], provider: ModelProvider = new MockProvider()) {
   const cfg = aiConfigFromEnv({ AI_PROVIDER: 'mock', OPENAI_MODEL: 'test-model', NODE_ENV: 'test' } as never);
   let n = 0;
   return new EgressGate({
@@ -107,6 +109,44 @@ describe('EgressGate', () => {
     expect(r2.ok).toBe(false);
     if (!r2.ok && r2.reason !== 'blocked_pii') expect(r2.reason).toBe('provider_error');
     expect(logs.map((l) => l.status)).toEqual(['invalid_output', 'provider_error']);
+  });
+
+  it('refuses every call when the model is switched off, and logs the refusal', async () => {
+    const logs: EgressLogEntry[] = [];
+    const gate = makeGate(logs, new DisabledProvider());
+    const res = await gate.call({
+      surface: 'guardrail_classifier',
+      promptVersion: prompt,
+      payloadSchema: Payload,
+      payload: { surface: 'plan_generation', draft: '{}' },
+      outputSchema: Output,
+      schemaName: 'scores',
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok && res.reason !== 'blocked_pii') {
+      expect(res.reason).toBe('provider_error');
+      // Non-retryable: generateWithGuardrails must not burn a second call on a switched-off model.
+      expect(res.retryable).toBe(false);
+      expect(res.error).toContain('AI_PROVIDER=off');
+    }
+    // The refusal is still an audit record: the payload that would have been sent is logged.
+    expect(logs).toHaveLength(1);
+    expect(logs[0]!.status).toBe('provider_error');
+    expect(logs[0]!.input).toBe(JSON.stringify({ surface: 'plan_generation', draft: '{}' }));
+    expect(logs[0]!.promptVersionId).toBe(prompt.id);
+  });
+
+  it('honours AI_PROVIDER=off in every environment, without an API key', () => {
+    for (const NODE_ENV of ['production', 'development', 'test']) {
+      const env = { AI_PROVIDER: 'off', NODE_ENV } as never;
+      expect(aiConfigFromEnv(env).provider).toBe('off');
+      expect(providerFromEnv(env).name).toBe('disabled');
+    }
+  });
+
+  it('still confines the mock provider to NODE_ENV=test', () => {
+    expect(aiConfigFromEnv({ AI_PROVIDER: 'mock', NODE_ENV: 'production' } as never).provider).toBe('openai');
+    expect(aiConfigFromEnv({ AI_PROVIDER: 'mock', NODE_ENV: 'test' } as never).provider).toBe('mock');
   });
 
   it('resolves models and effort from the environment with per-surface defaults', () => {

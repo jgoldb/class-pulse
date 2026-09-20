@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { newId } from '@class-pulse/domain';
 import { EVAL_CASES } from '@class-pulse/ai/evals';
+import { aiConfigFromEnv } from '@class-pulse/ai';
 import { createApp } from './bootstrap';
 import { caseLinks, cases, classSections, goals, organizations, planDrafts, reviewCycles, roleAssignments, schools, sectionEnrollments, students, subscriptions, users } from './db/schema';
 import { submitIntake } from './services/cases';
@@ -50,6 +51,11 @@ const DAY = 86_400_000;
 
 async function main() {
   const reset = process.argv.includes('--reset');
+  // The seed walks a case through the real model. With the model off it would fail at the draft,
+  // after the Clerk accounts and the workspace exist — so refuse before touching anything.
+  if (aiConfigFromEnv().provider === 'off') {
+    throw new Error('AI_PROVIDER=off: the model is turned off, so the demo seed cannot generate its plan draft. Unset it to seed.');
+  }
   const app = await createApp({ pollMs: 60_000 });
   const { ctx } = app;
   const db = ctx.db;

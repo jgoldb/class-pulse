@@ -2,7 +2,8 @@
  * `npm run evals` — run the plan-generation eval suite against the configured provider and write
  * a JSON report. Exit code 1 on failure so CI can gate prompt promotion (docs/03, docs/06 Phase 1).
  *
- * Env: AI_PROVIDER=mock|openai (+ OPENAI_* as in .env.example). EVAL_JUDGE=false skips the judge.
+ * Env: AI_PROVIDER=mock|openai (+ OPENAI_* as in .env.example); AI_PROVIDER=off refuses to run.
+ * EVAL_JUDGE=false skips the judge.
  * EVAL_CASES=001,004 limits the run.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -14,6 +15,8 @@ import { formatReport, runEvals } from './runner';
 
 async function main() {
   const cfg = aiConfigFromEnv();
+  // Every case would fail identically with the model off; say so once instead of twenty times.
+  if (cfg.provider === 'off') throw new Error('AI_PROVIDER=off: the model is turned off, so the eval suite cannot run. Unset it to evaluate a prompt.');
   const provider = providerFromEnv();
   const only = process.env.EVAL_CASES?.split(',').map((s) => s.trim()).filter(Boolean);
   const cases = only?.length ? EVAL_CASES.filter((c) => only.includes(c.id)) : EVAL_CASES;

@@ -56,6 +56,19 @@ model provider) and switches to real Postgres, Redis and the OpenAI API by envir
 - **A mock model provider exists for unit and integration tests only.** It is honoured solely
   under `NODE_ENV=test`; every other environment uses OpenAI, including the seed and the browser
   harness.
+- **`AI_PROVIDER=off` is a deployment kill switch for the model**, added so the model can be cut
+  off without a code change or a redeploy of new code — set it and restart. It is honoured in
+  every environment, unlike the mock, and the distinction that makes that safe is that it
+  fabricates nothing: it only refuses, so there is no state in which it can be mistaken for a
+  real generation. The app boots without `OPENAI_API_KEY`; `/health` reports
+  `provider: "disabled"`. Refusals travel the full egress path, so every attempt still writes an
+  `egress_log` row with the payload that would have been sent, its hash, the prompt version and
+  the surface — turning the model off leaves a record of what was asked of it rather than a blind
+  spot. The error is non-retryable, so a generation gives up after one attempt instead of
+  spending a second call. `npm run seed` and `npm run evals` refuse to start, the latter meaning
+  prompt promotion is impossible while the switch is on. What the switch does *not* do is make
+  the off state legible in the UI: a teacher sees a generation that failed, with the reason in
+  the error text, not a considered "AI is turned off here" empty state. That remains open.
 - **Two prompts were needed for `review_narration` and `guardrail_classifier`** on top of the
   two surfaces named in doc 03; the registry has five surfaces.
 

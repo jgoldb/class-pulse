@@ -1,5 +1,6 @@
 // @ts-check
 import js from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 /**
@@ -24,9 +25,32 @@ const providerImportRule = {
 };
 
 export default tseslint.config(
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/drizzle/**', '**/data/**'] },
+  // Generated output, not source. ESLint 9 flat config does not read .gitignore, so anything
+  // ignored there that lint would otherwise walk has to be repeated here — in particular the
+  // Playwright HTML report, whose bundled vendor JS is ~4000 errors of pure noise and was
+  // burying the provider-import rule below.
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/drizzle/**',
+      '**/data/**',
+      '**/eval-reports/**',
+      '.pglite/**',
+      'coverage/**',
+      'e2e/report/**',
+      'e2e/results/**',
+      'e2e/screenshots/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Plain ESM run directly by Node (the e2e launcher). typescript-eslint switches `no-undef`
+  // off for .ts because the compiler already checks it; .mjs gets no such treatment.
+  {
+    files: ['**/*.mjs', '**/*.js'],
+    languageOptions: { globals: globals.node },
+  },
   {
     files: ['**/*.ts', '**/*.tsx'],
     rules: {

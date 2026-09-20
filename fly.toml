@@ -28,16 +28,17 @@ primary_region = 'ord'
 [http_service]
   internal_port = 3001
   force_https = true
-  # docs/08: one API instance is the deployment shape. The job queue is polled in-process and
-  # the nightly sweep is an in-process timer (apps/api/src/jobs/scheduler.ts), so a second
-  # machine would double-run the scheduler and a stopped machine would never run it at all.
+  # docs/08: one API instance is the deployment shape, and a stopped machine would never run
+  # the nightly sweep, so this machine stays up rather than autostopping.
   #
-  # This is a correctness constraint, not a cost one. InProcessQueue claims work with a plain
-  # SELECT then UPDATE ... WHERE id = ? — no FOR UPDATE SKIP LOCKED — so two pollers can run
-  # the same job twice (two model calls, two drafts). Worse, its startup recovery resets every
-  # 'running' row to 'queued', so a second machine booting re-queues the first machine's
-  # in-flight work. `fly deploy` offers an HA standby on first launch anyway: decline it, and
-  # keep the app at `fly scale count 1` until the queue claims rows atomically.
+  # Keep the app at `fly scale count 1`. The queue itself is now safe for several workers — it
+  # claims rows with UPDATE ... WHERE id = (SELECT ... FOR UPDATE SKIP LOCKED) and only takes
+  # back jobs whose lease has expired — and the scheduler dedupes by primary key, so a double
+  # tick still enqueues once. What forbids a second machine now is migrate-on-boot: drizzle
+  # reads the last applied migration outside its transaction and takes no advisory lock, so two
+  # machines starting together would both try to apply the same pending migrations. Fix that (an
+  # advisory lock, or a release_command that migrates once) before scaling out. `fly deploy`
+  # offers an HA standby on first launch: decline it.
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1

@@ -8,6 +8,9 @@ demonstrated somewhere.
 Audit done against `apps/web/src/App.tsx` (routes), every page component's mutating calls, and
 the API route table in `apps/api/src/routes/`.
 
+The rendered videos are not in this repo — they are ~170 MB of mp4 and live in shared storage.
+This file is the map; the numbered titles below are the filenames there.
+
 ---
 
 ## 1. What the first ten already cover

@@ -16,5 +16,9 @@ e2e/screenshots/
 .agents/
 .neon
 
-# Demo run folders: raw takes, voiceover wavs, cut/mark files. Only the final cuts ship.
+# Demo run folders: raw takes, voiceover wavs, cut/mark files.
 demos/_work/
+
+# The recorded series itself: ~170 MB of mp4, kept outside the repo.
+# demos/SERIES.md — the coverage audit and the map of the series — stays tracked.
+demos/*.mp4

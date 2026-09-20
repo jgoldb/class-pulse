@@ -1,0 +1,65 @@
+app = 'class-pulse'
+primary_region = 'ord'
+
+[build]
+  # VITE_CLERK_PUBLISHABLE_KEY is passed at deploy time:
+  #   fly deploy --build-arg VITE_CLERK_PUBLISHABLE_KEY=pk_...
+  # It is a publishable key, inlined into the client bundle by Vite, so it is not a secret.
+
+[env]
+  PORT = '3001'
+  NODE_ENV = 'production'
+  # Synthetic students only. Turning this to 'operational' needs the compliance work in docs/04.
+  DEPLOYMENT_POSTURE = 'demonstration'
+  # The API serves the SPA from this same origin, so CORS only ever sees same-origin requests.
+  WEB_ORIGIN = 'https://class-pulse.fly.dev'
+  PATTERN_SWEEP_CRON = '0 2 * * *'
+  # Model configuration is not secret; the keys are, and live in `fly secrets`.
+  OPENAI_MODEL = 'gpt-5.6-terra'
+  OPENAI_REASONING_EFFORT = 'medium'
+  OPENAI_CLASSIFIER_REASONING_EFFORT = 'low'
+  OPENAI_MAX_OUTPUT_TOKENS = '8000'
+  OPENAI_ZERO_RETENTION = 'true'
+  OPENAI_REGION = 'us'
+  PLAN_APPROVER_ROLES = 'teacher,support_professional'
+  PATTERN_MAX_ACTIVE_PER_TEACHER = '3'
+  ADMIN_MIN_CELL_SIZE = '10'
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  # docs/08: one API instance is the deployment shape. The job queue is polled in-process and
+  # the nightly sweep is an in-process timer (apps/api/src/jobs/scheduler.ts), so a second
+  # machine would double-run the scheduler and a stopped machine would never run it at all.
+  #
+  # This is a correctness constraint, not a cost one. InProcessQueue claims work with a plain
+  # SELECT then UPDATE ... WHERE id = ? — no FOR UPDATE SKIP LOCKED — so two pollers can run
+  # the same job twice (two model calls, two drafts). Worse, its startup recovery resets every
+  # 'running' row to 'queued', so a second machine booting re-queues the first machine's
+  # in-flight work. `fly deploy` offers an HA standby on first launch anyway: decline it, and
+  # keep the app at `fly scale count 1` until the queue claims rows atomically.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  max_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'requests'
+    soft_limit = 200
+    hard_limit = 250
+
+[[http_service.checks]]
+  # /health is public (apps/api/src/server.ts PUBLIC) and only answers once migrations have run.
+  path = '/health'
+  method = 'GET'
+  interval = '15s'
+  timeout = '5s'
+  grace_period = '30s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  # A starting point, not a measurement: the process runs TypeScript through tsx and holds the
+  # pg pool, the queue poller and in-flight model responses. Watch `fly logs` for OOM kills and
+  # adjust once there is real traffic.
+  memory = '1gb'
+  cpus = 1

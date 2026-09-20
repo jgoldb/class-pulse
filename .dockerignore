@@ -1,0 +1,23 @@
+# Keep the build context small and keep secrets out of the image.
+.git
+.env
+.env.local
+**/.env
+**/.env.local
+node_modules
+**/node_modules
+apps/web/dist
+**/dist
+**/data
+.pglite
+coverage
+**/eval-reports
+e2e/report
+e2e/results
+e2e/screenshots
+demos
+docs
+.claude
+.agents
+.neon
+*.log

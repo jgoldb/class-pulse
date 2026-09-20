@@ -1,5 +1,9 @@
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
 import { eq } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import { users } from './db/schema';
@@ -97,5 +101,34 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerReviewRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerPiiRoutes(app, ctx);
+
+  // In a deployed container the API also serves the built SPA, so the app is one origin and the
+  // relative /api and /auth fetches in apps/web/src/lib/api.ts need no CORS and no rewrite. In
+  // development the directory does not exist and Vite serves the app instead, proxying to here.
+  const webDist = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+  if (existsSync(join(webDist, 'index.html'))) {
+    await app.register(fastifyStatic, {
+      root: webDist,
+      // Let the not-found handler below decide what an unmatched path means, rather than having
+      // the plugin claim every route.
+      wildcard: false,
+      setHeaders(reply, path) {
+        // Vite fingerprints everything under assets/; index.html must never be cached, or a
+        // deploy leaves browsers holding a stale document that points at deleted bundles.
+        const immutable = path.includes(`${sep}assets${sep}`);
+        reply.header('cache-control', immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    });
+
+    app.setNotFoundHandler((req, reply) => {
+      // Client-side routes (/teacher/today, /admin/audit, …) are not files; they are the SPA.
+      // Anything the API owns stays a JSON 404 so a typo in a fetch is not answered with HTML.
+      const url = req.url.split('?')[0]!;
+      const isApi = url.startsWith('/api/') || url.startsWith('/auth/') || url === '/health';
+      if (!isApi && (req.method === 'GET' || req.method === 'HEAD')) return reply.sendFile('index.html');
+      return reply.code(404).send({ error: 'Not found' });
+    });
+  }
+
   return app;
 }

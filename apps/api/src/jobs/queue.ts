@@ -64,7 +64,12 @@ export class InProcessQueue implements JobQueue {
 
   async enqueue(type: JobType, payload: Record<string, unknown>, opts: { delayMs?: number; dedupeKey?: string } = {}): Promise<string> {
     const id = opts.dedupeKey ? `${type}:${opts.dedupeKey}` : newId();
-    const runAt = new Date(Date.now() + (opts.delayMs ?? 0));
+    // claim() asks the database whether a job is due (`run_at <= now()`), so run_at has to be
+    // written on the database's clock as well. Taking it from Date.now() mixes two clocks: a
+    // client running even a second ahead of Postgres enqueues jobs that are not due yet, and a
+    // drain() straight after the enqueue — which is what the seed and the tests do — sees
+    // nothing and returns 0.
+    const runAt = sql`now() + ${opts.delayMs ?? 0} * interval '1 millisecond'`;
     await this.db
       .insert(jobs)
       .values({ id, type, payload, runAt })

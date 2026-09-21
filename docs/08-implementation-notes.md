@@ -100,6 +100,20 @@ its redactions, the second teacher's scope, administration (structure, invitatio
 equity), and a screenshot sweep of every screen at desktop and phone widths. Screenshots are
 written to `e2e/screenshots/` so the product can be looked at, not inferred.
 
+One thing the sweep did not catch, because it loads every page with `page.goto`: client-side
+navigation through the sidenav could leave the new page blank until a reload. The route
+transition was an `AnimatePresence mode="wait"` cross-fade around the router's `<Outlet />`, and
+the outlet follows the router, so the wrapper that was animating out was already rendering the
+new page. A `layoutId` element in that page (the segmented filter on Cases, the tabs on a case)
+registered with the exiting presence context, and framer-motion's layout tracker only reports
+itself finished on a later re-render, never on mount. The exit therefore never completed and the
+new wrapper never mounted. Whether some unrelated re-render came along in time decided whether
+it showed, which is why it reproduced on the deployment and rarely against a local server. The
+transition is now enter-only (`PageTransition` in `components/ui/motion.tsx`), so there is
+nothing to wait on, and `e2e/navigation.spec.ts` clicks through both sidenavs and reads the
+wrapper's computed opacity, since Playwright's `toBeVisible` counts an opacity-0 element as
+visible.
+
 ## What the eval harness found (gpt-5.6-terra, medium effort)
 
 Case 001 alone passed first time: the model declined to set a target, called the baseline

@@ -15,12 +15,15 @@ interface NavItem {
   icon: LucideIcon;
   end?: boolean;
   badgeKey?: 'patterns' | 'reviews' | 'requests';
+  /** Bottom-tab label. Defaults to the first word, which is wrong for "My class". */
+  short?: string;
 }
 
 const NAV: Record<Surface, NavItem[]> = {
   teacher: [
     { to: '/teacher', label: 'Today', icon: Home, end: true },
     { to: '/teacher/cases', label: 'Cases', icon: BookOpen },
+    { to: '/teacher/class', label: 'My class', icon: Users, short: 'Class' },
     { to: '/teacher/patterns', label: 'Patterns', icon: Sparkles, badgeKey: 'patterns' },
     { to: '/teacher/reviews', label: 'Reviews', icon: ClipboardList, badgeKey: 'reviews' },
     { to: '/teacher/requests', label: 'Family requests', icon: Inbox, badgeKey: 'requests' },
@@ -42,6 +45,9 @@ const NAV: Record<Surface, NavItem[]> = {
     { to: '/admin/audit', label: 'Audit log', icon: ShieldCheck },
   ],
 };
+
+/** The teacher surface has six destinations; six still fits across a phone with one-word labels. */
+const MOBILE_TABS = 6;
 
 const TITLE: Record<Surface, string> = { teacher: 'Teacher', support: 'Support', student: 'Student', family: 'Family', admin: 'Administration' };
 
@@ -220,13 +226,13 @@ export function AppShell({ surface, counts = {}, primaryAction }: { surface: Sur
 
       {/* Mobile bottom tabs */}
       {bottomNav && (
-        <nav className="no-print fixed inset-x-0 bottom-0 z-30 grid h-[var(--bottom-nav)] border-t border-border bg-elevated/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 5)}, 1fr)` }}>
-          {items.slice(0, 5).map((i) => {
+        <nav className="no-print fixed inset-x-0 bottom-0 z-30 grid h-[var(--bottom-nav)] border-t border-border bg-elevated/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" style={{ gridTemplateColumns: `repeat(${Math.min(items.length, MOBILE_TABS)}, 1fr)` }}>
+          {items.slice(0, MOBILE_TABS).map((i) => {
             const count = i.badgeKey ? counts[i.badgeKey] : undefined;
             return (
               <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => cn('relative flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium', isActive ? 'text-primary' : 'text-muted')}>
                 <i.icon className="size-5" />
-                <span>{i.label.split(' ')[0]}</span>
+                <span>{i.short ?? i.label.split(' ')[0]}</span>
                 {!!count && <span className="absolute right-[calc(50%-18px)] top-1 size-2 rounded-full bg-warning" />}
               </NavLink>
             );

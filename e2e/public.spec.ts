@@ -81,3 +81,42 @@ test('a signed-in person without an invitation sees the onboarding explanation, 
   await expect(page.getByText('Complete checkout before creating a workspace')).toBeVisible();
   await expect(page).toHaveURL(/\/onboarding/);
 });
+
+test('a teacher buying the Classroom plan sets up their own class, not a school', async ({ page }, info) => {
+  await setupClerkTestingToken({ page });
+  await page.goto('/get-started');
+  await page.getByRole('button', { name: /^Classroom/ }).click();
+  await page.getByRole('button', { name: 'Continue to payment' }).click();
+  await page.getByTestId('cardholder').fill('E2E Teacher');
+  await page.getByRole('button', { name: /^Pay / }).click();
+
+  await expect(page).toHaveURL(/\/sign-up\?checkout=cs_sim_/);
+  const email = `e2e-teacher-${Date.now()}+clerk_test@example.com`;
+  await page.locator('input[name="emailAddress"]').fill(email);
+  await page.locator('input[name="password"]').fill(`E2E-pass-${Date.now()}!`);
+  await page.locator('button[data-localization-key="formButtonPrimary"]').click();
+  const code = page.locator('input[name="code"], input[autocomplete="one-time-code"]').first();
+  await expect(code).toBeVisible({ timeout: 20_000 });
+  await code.fill('424242');
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 30_000 });
+
+  // The Classroom plan preselects the teacher setup, and says what that means.
+  await expect(page.getByTestId('setup-teacher')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('heading', { name: 'Set up your class' })).toBeVisible();
+  await expect(page.getByText('You will teach the section you name below')).toBeVisible();
+  await page.screenshot({ path: `e2e/screenshots/${info.project.name}/03-onboarding-teacher.png`, fullPage: true });
+
+  await page.getByPlaceholder('Riverside Unified').fill('E2E Teacher District');
+  await page.getByPlaceholder('Riverside Middle School').fill('E2E Teacher School');
+  // A teacher has to name the class they teach — it is the thing that makes the roster theirs.
+  await expect(page.getByRole('button', { name: 'Create my class' })).toBeDisabled();
+  await page.getByPlaceholder('Grade 6 — Period 3 Science').fill('Grade 8 — Period 2 English');
+  await page.getByRole('button', { name: 'Create my class' }).click();
+
+  await expect(page).toHaveURL(/\/teacher\/class/, { timeout: 30_000 });
+  await expect(page.getByText('Grade 8 — Period 2 English')).toBeVisible();
+  await expect(page.getByText('No students on this roster yet')).toBeVisible();
+  // A teacher-owned workspace has no administration surface at all.
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/teacher/);
+});

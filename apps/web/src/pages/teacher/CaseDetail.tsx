@@ -6,6 +6,7 @@ import { AlertTriangle, ClipboardList, FileText, Printer, RefreshCw, Sparkles, Z
 import type { PlanContent } from '@class-pulse/domain';
 import { PageHeader } from '../../components/AppShell';
 import { Avatar, Badge, Button, Callout, Card, CardBody, CardHeader, Empty, ObsCount, PageSkeleton, Tabs, TabsContent, TabsList } from '../../components/ui';
+import { FamilyAccess } from '../../components/FamilyAccess';
 import { api, fmtDate, fmtDateTime, humanize } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import type { CaseView, Draft } from '../../lib/types';
@@ -191,6 +192,15 @@ export function CaseDetail() {
               </ul>
             </CardBody>
           </Card>
+
+          {v.student && (
+            <Card className="md:col-span-2">
+              <CardHeader title="Family and student access" description="Open this child's own dashboards. Scoped to them, free, and revocable — you don't need an administrator for it." />
+              <CardBody>
+                <FamilyAccess studentId={v.student.id} studentName={v.student.displayName.split(' ')[0] ?? v.student.displayName} />
+              </CardBody>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="plan">{plan ? <Card><CardBody className="pt-5"><PlanSections content={plan} /></CardBody></Card> : <Empty icon={<FileText />} title="No approved plan yet" />}</TabsContent>

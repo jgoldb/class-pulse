@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { ROLES, newId } from '@class-pulse/domain';
 import type { AppContext } from '../context';
@@ -7,10 +7,11 @@ import { badRequest, conflict, forbidden, notFound } from '../context';
 import { checkoutSessions, classSections, invitations, organizations, roleAssignments, schools, sectionEnrollments, students, subscriptions, users } from '../db/schema';
 import { identityDetails } from '../auth/clerk';
 import { audit } from '../services/audit';
+import { issueInvitation, revokePendingInvitation, schoolForInvitationScope } from '../services/invitations';
 import { assertScopeValid } from '../services/roster';
 
 export const PLANS = {
-  classroom: { name: 'Classroom', seats: 5, monthlyCents: 4900, blurb: 'One school, up to 5 educator seats.' },
+  classroom: { name: 'Classroom', seats: 5, monthlyCents: 4900, blurb: 'A teacher setting up their own class, or a small team. Up to 5 educator seats.' },
   school: { name: 'School', seats: 40, monthlyCents: 29900, blurb: 'Whole-school rollout, support team and administration views.' },
   district: { name: 'District', seats: 500, monthlyCents: 149900, blurb: 'Multiple schools, SSO, equity monitoring across sites.' },
 } as const;
@@ -83,11 +84,16 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = z
       .object({
         checkoutId: z.string(),
+        // A teacher setting up their own class becomes the teacher of their first section and
+        // nothing more; someone rolling out a school becomes its administrator. The difference
+        // is who the workspace belongs to, so it is asked at the only moment it can be.
+        setupAs: z.enum(['teacher', 'administrator']).default('administrator'),
         workspaceName: z.string().min(2).max(120),
         schoolName: z.string().min(2).max(120),
         firstSection: z.object({ name: z.string().min(1).max(120), gradeLevel: z.string().min(1).max(20), periodTag: z.string().nullable() }).nullable(),
       })
       .parse(req.body);
+    if (body.setupAs === 'teacher' && !body.firstSection) throw badRequest('Name the first class section you teach');
     const [checkout] = await ctx.db.select().from(checkoutSessions).where(eq(checkoutSessions.id, body.checkoutId)).limit(1);
     if (!checkout || checkout.status !== 'paid') throw badRequest('Complete checkout before creating a workspace');
     if (checkout.claimedByUserId) throw conflict('This checkout was already used');
@@ -103,12 +109,16 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext) {
       await tx.insert(schools).values({ id: schoolId, orgId, name: body.schoolName });
       if (body.firstSection && sectionId) await tx.insert(classSections).values({ id: sectionId, schoolId, name: body.firstSection.name, gradeLevel: body.firstSection.gradeLevel, periodTag: body.firstSection.periodTag });
       await tx.insert(users).values({ id: userId, email: identity.email!.toLowerCase(), displayName: identity.name ?? identity.email!, authSubject: req.subject! });
-      await tx.insert(roleAssignments).values({ id: newId(), userId, role: 'administrator', schoolId, sectionId: null, studentId: null });
+      await tx.insert(roleAssignments).values(
+        body.setupAs === 'teacher'
+          ? { id: newId(), userId, role: 'teacher', schoolId: null, sectionId: sectionId!, studentId: null }
+          : { id: newId(), userId, role: 'administrator', schoolId, sectionId: null, studentId: null },
+      );
       await tx.insert(subscriptions).values({ id: newId(), orgId, plan: checkout.plan, seats: checkout.seats, processor: 'simulated', processorRef: checkout.id, status: 'active', currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000) });
       await tx.update(checkoutSessions).set({ claimedByUserId: userId }).where(eq(checkoutSessions.id, checkout.id));
     });
-    await audit(ctx.db, { actorUserId: userId, actorRole: 'administrator', action: 'auth.login', targetType: 'organization', targetId: orgId, metadata: { created: true, plan: checkout.plan } });
-    return { orgId, schoolId, sectionId, userId };
+    await audit(ctx.db, { actorUserId: userId, actorRole: body.setupAs, action: 'auth.login', targetType: 'organization', targetId: orgId, metadata: { created: true, plan: checkout.plan, setupAs: body.setupAs } });
+    return { orgId, schoolId, sectionId, userId, role: body.setupAs };
   });
 
   // ---- Invitations (administrator) -------------------------------------------------------------
@@ -136,57 +146,20 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext) {
       .parse(req.body);
     const scope = { role: body.role, schoolId: body.schoolId ?? null, sectionId: body.sectionId ?? null, studentId: body.studentId ?? null };
     assertScopeValid(scope);
-    // Resolve the school the scope belongs to and check it is one of the administrator's.
-    let schoolId = scope.schoolId;
-    if (scope.sectionId) schoolId = (await ctx.db.select().from(classSections).where(eq(classSections.id, scope.sectionId)).limit(1))[0]?.schoolId ?? null;
-    if (scope.studentId) schoolId = (await ctx.db.select().from(students).where(eq(students.id, scope.studentId)).limit(1))[0]?.schoolId ?? null;
+    const schoolId = await schoolForInvitationScope(ctx.db, scope);
     if (!schoolId || !actor.scope.adminSchoolIds.has(schoolId)) throw forbidden('That scope is outside your school');
-    const [school] = await ctx.db.select().from(schools).where(eq(schools.id, schoolId)).limit(1);
-    const email = body.email.toLowerCase();
-    const [existing] = await ctx.db.select().from(users).where(eq(users.email, email)).limit(1);
-    const id = newId();
-    let clerkInvitationId: string | null = null;
-    let existingUserId: string | null = null;
-    if (existing) {
-      // Already a member (any workspace): just add the role assignment; no email needed.
-      existingUserId = existing.id;
-      await ctx.db.insert(roleAssignments).values({ id: newId(), userId: existing.id, ...scope });
-      await ctx.db.insert(invitations).values({ id, orgId: school!.orgId, email, ...scope, status: 'accepted', invitedBy: actor.userId, userId: existing.id, acceptedAt: new Date() });
-    } else {
-      await ctx.db.insert(invitations).values({ id, orgId: school!.orgId, email, ...scope, status: 'pending', invitedBy: actor.userId });
-      try {
-        const inv = await ctx.auth.client.invitations.createInvitation({
-          emailAddress: email,
-          redirectUrl: `${ctx.config.webOrigin}/sign-up`,
-          publicMetadata: { invitationId: id, workspace: school!.name },
-          ignoreExisting: true,
-        });
-        clerkInvitationId = inv.id;
-        await ctx.db.update(invitations).set({ clerkInvitationId }).where(eq(invitations.id, id));
-      } catch (err) {
-        await ctx.db.delete(invitations).where(eq(invitations.id, id));
-        throw badRequest(`Could not send the invitation: ${(err as Error).message}`);
-      }
-    }
-    await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'administrator', action: 'authorization.grant', targetType: 'invitation', targetId: id, studentId: scope.studentId, metadata: { role: body.role, sectionId: scope.sectionId, existingUser: !!existing } });
-    return { id, status: existing ? 'accepted' : 'pending', clerkInvitationId, existingUserId };
+    return issueInvitation(ctx, actor, { scope, email: body.email, schoolId, actorRole: 'administrator' });
   });
 
   app.post('/api/admin/invitations/:id/revoke', async (req) => {
     const actor = req.actor!;
     if (!actor.roles.has('administrator')) throw forbidden('Administrator role required');
     const { id } = z.object({ id: z.string() }).parse(req.params);
-    const [inv] = await ctx.db.select().from(invitations).where(and(eq(invitations.id, id), eq(invitations.status, 'pending'))).limit(1);
-    if (!inv) throw notFound('Pending invitation not found');
-    if (inv.clerkInvitationId) {
-      try {
-        await ctx.auth.client.invitations.revokeInvitation(inv.clerkInvitationId);
-      } catch {
-        /* already accepted or expired on Clerk's side */
-      }
-    }
-    await ctx.db.update(invitations).set({ status: 'revoked' }).where(eq(invitations.id, id));
-    await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'administrator', action: 'authorization.revoke', targetType: 'invitation', targetId: id });
+    await revokePendingInvitation(ctx, actor, id, async (inv) => {
+      const schoolId = await schoolForInvitationScope(ctx.db, inv);
+      if (!schoolId || !actor.scope.adminSchoolIds.has(schoolId)) throw forbidden('That invitation is outside your school');
+      return 'administrator' as const;
+    });
     return { ok: true };
   });
 

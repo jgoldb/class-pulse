@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
@@ -44,6 +44,11 @@ export function IntakePage() {
   const err = submit.error as ApiError | null;
   const anyBlocking = Object.values(blocking).some(Boolean);
   const selected = roster.data?.find((s) => s.id === studentId);
+  // Arriving from "Open a case" names the student in the URL; fill their grade the same way
+  // picking them from the list does.
+  useEffect(() => {
+    if (selected && !fields.gradeLevel) setFields((f) => ({ ...f, gradeLevel: selected.gradeLevel }));
+  }, [selected?.id]);
   const filled = ORDER.filter((k) => fields[k].trim()).length;
 
   return (

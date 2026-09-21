@@ -65,13 +65,17 @@ Open http://localhost:5173. Demo accounts (password printed by the seed):
 `+clerk_test` addresses are Clerk test users: any verification code prompt accepts `424242`.
 
 New workspaces are created through the public flow: landing → plan → simulated checkout →
-Clerk sign-up → onboarding. Everyone else joins by invitation from an administrator
-(People & access), which sets their role and scope before they ever sign in.
+Clerk sign-up → onboarding, where you say whether you are a teacher setting up your own class
+or an administrator rolling out a school. A teacher gets a section and a roster they own (My
+class) and invites the family and the student for any child on it — scoped to that child, free,
+and revocable. Staff roles, which take an educator seat, are invited by an administrator
+(People & access). Either way the invitation sets a role and a scope before the person ever
+signs in.
 
 ## Verify
 
 ```bash
-npm test              # 102 unit/integration tests: domain, policy matrix, PII, guardrails,
+npm test              # 124 unit/integration tests: domain, policy matrix, PII, guardrails,
                       # egress invariant, detection precision/recall, review engine, API per role
 npm run typecheck
 npm run lint          # includes the rule that only the egress gate may import the provider SDK

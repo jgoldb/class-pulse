@@ -15,7 +15,7 @@ test('the pattern card leads with evidence and can be confirmed into a strategy'
   await expect(steps.nth(0)).toContainText('Evidence');
   await expect(steps.nth(1)).toContainText('Hypothesis');
   await expect(steps.nth(2)).toContainText('Proposals');
-  await expect(page.getByText('Assignment grade')).toBeVisible();
+  await expect(page.getByText('Assignment grade', { exact: true })).toBeVisible();
 
   await page.getByTestId('start-review').click();
   await expect(page.getByTestId('decision-confirmed')).toBeVisible();

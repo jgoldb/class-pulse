@@ -50,6 +50,7 @@ beforeAll(async () => {
     { id: 'u-g', email: 'guardian@test.school', displayName: 'Guardian A' },
     { id: 'u-sp', email: 'support@test.school', displayName: 'Support Pro' },
     { id: 'u-a', email: 'admin@test.school', displayName: 'Admin' },
+    { id: 'u-g2', email: 'parent2@test.school', displayName: 'Parent Two' },
   ]);
   await db.insert(students).values([
     { id: S.studentA, schoolId: S.school, firstName: 'Marcus', lastName: 'Johnson', gradeLevel: '6', demographics: { group: 'alpha' } },
@@ -404,5 +405,105 @@ describe('AI_PROVIDER=off', () => {
     const res = await offServer.inject({ method: 'POST', url: '/api/admin/prompts/plan_generation.v1/evals', payload: { judge: false }, headers: { authorization: 'Test u-a' } });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toContain('AI_PROVIDER=off');
+  });
+});
+
+describe("the teacher's own class", () => {
+  let sectionId = '';
+  let newStudentId = '';
+
+  it('lets a teacher create a section and put a student on their own roster', async () => {
+    const sec = await post('teacher@test.school', '/api/classroom/sections', { name: 'Sec 3', gradeLevel: '7', periodTag: 'period_5' });
+    expect(sec.status).toBe(200);
+    sectionId = sec.body.id;
+    expect(sec.body.schoolId).toBe(S.school);
+
+    const stu = await post('teacher@test.school', '/api/classroom/students', { sectionId, firstName: 'Nadia', lastName: 'Okonkwo' });
+    expect(stu.status).toBe(200);
+    newStudentId = stu.body.id;
+    expect(stu.body.gradeLevel).toBe('7'); // inherited from the section
+
+    const roster = await get('teacher@test.school', '/api/roster');
+    expect(roster.body.map((r: { id: string }) => r.id)).toContain(newStudentId);
+    const klass = await get('teacher@test.school', '/api/classroom');
+    expect(klass.body.sections.map((x: { id: string }) => x.id)).toContain(sectionId);
+    expect(klass.body.students.map((x: { displayName: string }) => x.displayName)).toContain('Nadia Okonkwo');
+  });
+
+  it('keeps one teacher out of another teacher\'s section', async () => {
+    const r = await post('teacher2@test.school', '/api/classroom/students', { sectionId, firstName: 'Not', lastName: 'Mine' });
+    expect(r.status).toBe(403);
+    const klass = await get('teacher2@test.school', '/api/classroom');
+    expect(klass.body.students.map((x: { id: string }) => x.id)).not.toContain(newStudentId);
+  });
+
+  it('lets the teacher on the case open the family dashboard for their own student', async () => {
+    const inv = await post('teacher@test.school', `/api/classroom/students/${newStudentId}/access`, { email: 'parent2@test.school', role: 'guardian' });
+    expect(inv.status).toBe(200);
+    expect(inv.body.status).toBe('accepted'); // the email already had an account: no second sign-up
+    const me = await server.inject({ method: 'GET', url: '/auth/me', headers: { authorization: 'Test u-g2' } });
+    expect(me.json().roles).toEqual(['guardian']);
+    expect(me.json().assignments[0].studentId).toBe(newStudentId);
+
+    const access = await get('teacher@test.school', `/api/classroom/students/${newStudentId}/access`);
+    expect(access.body).toHaveLength(1);
+    expect(access.body[0]).toMatchObject({ email: 'parent2@test.school', role: 'guardian', invitedByMe: true });
+  });
+
+  it('lists an accepted invitation once, not again for the role assignment it produced', async () => {
+    const klass = await get('teacher@test.school', '/api/classroom');
+    const forNew = klass.body.access.filter((a: { studentId: string }) => a.studentId === newStudentId);
+    expect(forNew).toHaveLength(1);
+    expect(forNew[0]).toMatchObject({ email: 'parent2@test.school', role: 'guardian', status: 'accepted', invitedByMe: true });
+  });
+
+  it('lists family and student access held through a role assignment with no invitation behind it', async () => {
+    // guardian@ and student@ were given their assignments on studentA directly, as the seed does.
+    const access = await get('teacher@test.school', `/api/classroom/students/${S.studentA}/access`);
+    expect(access.status).toBe(200);
+    const byEmail = Object.fromEntries(access.body.map((a: { email: string }) => [a.email, a]));
+    expect(Object.keys(byEmail).sort()).toEqual(['guardian@test.school', 'student@test.school']);
+    expect(byEmail['guardian@test.school']).toMatchObject({ role: 'guardian', status: 'accepted', invitedByMe: false });
+    expect(byEmail['student@test.school']).toMatchObject({ role: 'student', status: 'accepted', invitedByMe: false });
+    expect(byEmail['guardian@test.school'].inviterName).toBeUndefined();
+    expect(byEmail['guardian@test.school'].createdAt).toBeTruthy();
+
+    const klass = await get('teacher@test.school', '/api/classroom');
+    const forA = klass.body.access.filter((a: { studentId: string }) => a.studentId === S.studentA);
+    expect(forA.map((a: { email: string }) => a.email).sort()).toEqual(['guardian@test.school', 'student@test.school']);
+
+    // The assignment's id is not an invitation id: the revoke endpoint will not act on it.
+    const revoke = await post('teacher@test.school', `/api/classroom/access/${byEmail['guardian@test.school'].id}/revoke`);
+    expect(revoke.status).toBe(404);
+  });
+
+  it('records the grant against the teacher, not an administrator', async () => {
+    const rows = await app.ctx.db.select().from(auditEvents).where(eq(auditEvents.studentId, newStudentId));
+    const grant = rows.find((r) => r.action === 'authorization.grant');
+    expect(grant?.actorRole).toBe('teacher');
+    expect(grant?.actorUserId).toBe('u-t');
+  });
+
+  it('refuses a second identical invitation instead of stacking role assignments', async () => {
+    const again = await post('teacher@test.school', `/api/classroom/students/${newStudentId}/access`, { email: 'parent2@test.school', role: 'guardian' });
+    expect(again.status).toBe(409);
+  });
+
+  it('refuses a student outside the teacher\'s own sections', async () => {
+    const r = await post('teacher@test.school', `/api/classroom/students/${S.studentOther}/access`, { email: 'parent2@test.school', role: 'guardian' });
+    expect(r.status).toBe(403);
+  });
+
+  it('will not let a teacher grant a staff or school-wide role', async () => {
+    for (const role of ['teacher', 'support_professional', 'administrator']) {
+      const r = await post('teacher@test.school', `/api/classroom/students/${newStudentId}/access`, { email: 'someone@test.school', role });
+      expect(r.status).toBe(400);
+    }
+  });
+
+  it('keeps the classroom surface away from families and administrators', async () => {
+    expect((await get('guardian@test.school', '/api/classroom')).status).toBe(403);
+    expect((await get('student@test.school', '/api/classroom')).status).toBe(403);
+    expect((await get('admin@test.school', '/api/classroom')).status).toBe(403);
   });
 });

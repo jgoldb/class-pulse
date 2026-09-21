@@ -13,10 +13,32 @@ export const ACCOUNTS = {
 export type AccountKey = keyof typeof ACCOUNTS;
 export const PASSWORD = process.env.SEED_PASSWORD || 'ClassPulse-demo-2026!';
 
+/**
+ * The Clerk instance verifies new devices, and every Playwright run is a new device: a correct
+ * password leaves the attempt at `needs_client_trust`, wanting an email code. `clerk.signIn`
+ * resolves anyway, with no session, so the next navigation bounces to /sign-in. Clerk's test
+ * addresses (`+clerk_test`) always accept 424242, so finish the attempt here.
+ */
+async function trustThisDevice(page: Page) {
+  const status = await page.evaluate(async () => {
+    const w = window as unknown as { Clerk?: any };
+    let si = w.Clerk?.client?.signIn;
+    if (!si || si.status !== 'needs_client_trust') return si?.status ?? 'no-attempt';
+    si = await si.prepareSecondFactor({ strategy: 'email_code' });
+    si = await si.attemptSecondFactor({ strategy: 'email_code', code: '424242' });
+    if (si.status === 'complete') await w.Clerk.setActive({ session: si.createdSessionId });
+    return si.status;
+  });
+  if (status !== 'complete' && status !== 'no-attempt') {
+    throw new Error(`Clerk sign-in did not complete: ${status}`);
+  }
+}
+
 export async function signInAs(page: Page, key: AccountKey) {
   await setupClerkTestingToken({ page });
   await page.goto('/');
   await clerk.signIn({ page, signInParams: { strategy: 'password', identifier: ACCOUNTS[key].email, password: PASSWORD } });
+  await trustThisDevice(page);
   await page.goto(ACCOUNTS[key].home);
   await expect(page).toHaveURL(new RegExp(`${ACCOUNTS[key].home}`));
 }

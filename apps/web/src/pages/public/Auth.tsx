@@ -40,7 +40,7 @@ export function SignInPage() {
       side={
         <>
           <h1 className="text-3xl font-bold tracking-tight">Welcome back.</h1>
-          <p className="mt-3 text-muted">Sign in with the account your workspace administrator invited. Teachers, support staff, students and families each see only what their role allows.</p>
+          <p className="mt-3 text-muted">Sign in with the account you were invited to, or the one you started a workspace with. Teachers, support staff, students and families each see only what their role allows.</p>
         </>
       }
     >
@@ -65,10 +65,10 @@ export function SignUpPage() {
           <h1 className="text-3xl font-bold tracking-tight">{invited ? 'You have been invited.' : 'Create your account.'}</h1>
           <p className="mt-3 text-muted">
             {invited
-              ? 'Your administrator has already set your role and scope. Create your account and you will land in the right place.'
+              ? 'Whoever invited you has already set your role and what you can see. Create your account and you will land in the right place.'
               : checkout
-                ? 'Payment is confirmed. Create the administrator account for your new workspace.'
-                : 'Class Pulse is invitation-based. If you are starting a new workspace, begin with a plan; otherwise use the link from your administrator.'}
+                ? 'Payment is confirmed. Create your account, then set up your class or your school.'
+                : 'Class Pulse is invitation-based. If you are starting a new workspace, begin with a plan; otherwise use the invitation link you were sent.'}
           </p>
           {!invited && !checkout && (
             <Link to="/get-started" className="mt-4 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline">

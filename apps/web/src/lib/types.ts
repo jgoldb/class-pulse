@@ -148,3 +148,38 @@ export interface ReviewCycleFull {
   decision: string | null;
   rationale: string | null;
 }
+
+export interface ClassroomSection {
+  id: string;
+  name: string;
+  gradeLevel: string;
+  periodTag: string | null;
+  schoolId: string;
+}
+
+export interface ClassroomStudent {
+  id: string;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  gradeLevel: string;
+  sectionIds: string[];
+}
+
+export interface AccessGrant {
+  id: string;
+  email: string;
+  role: 'guardian' | 'student';
+  status: 'pending' | 'accepted' | 'revoked';
+  createdAt: string;
+  acceptedAt: string | null;
+  invitedByMe: boolean;
+  inviterName?: string;
+}
+
+export interface Classroom {
+  schools: Array<{ id: string; name: string }>;
+  sections: ClassroomSection[];
+  students: ClassroomStudent[];
+  access: Array<AccessGrant & { studentId: string | null }>;
+}

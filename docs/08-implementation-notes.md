@@ -43,9 +43,22 @@ model provider) and switches to real Postgres, Redis and the OpenAI API by envir
 - **Auth is Clerk**, not a self-hosted OIDC client. Identity (sign-in, sessions, invitation
   email delivery, verification) is Clerk's; authorization is ours: every person joins through an
   `invitations` row that fixes their role and scope before they sign in, or by creating a
-  workspace through the paid sign-up flow, which makes them its administrator. The API verifies
-  Clerk session JWTs; nothing else grants access. Row scope is enforced by a single policy layer
-  in code rather than Postgres RLS; the doc allowed either.
+  workspace through the paid sign-up flow. The API verifies Clerk session JWTs; nothing else
+  grants access. Row scope is enforced by a single policy layer in code rather than Postgres
+  RLS; the doc allowed either.
+- **A teacher owns their own class, and invites the family themselves.** The first version made
+  the workspace creator an administrator and put every roster row and every invitation behind
+  that role, which meant a teacher signing up alone had to become an administrator, build the
+  roster in the administration surface, and invite themselves back in as a teacher. That is not
+  how a school works: the person who knows who is in the room is the teacher. So sign-up now
+  asks which you are, a teacher creating their own class gets a `teacher` assignment on their
+  first section and no administrator role at all, and `/api/classroom` lets them add sections
+  and students of their own and open the family and student dashboards onto those children.
+  Everything that costs an educator seat or reaches across a school — teacher, support
+  professional and administrator invitations, equity monitoring, the audit viewer, the prompt
+  registry — stays with an administrator. See [04 — who may grant access](04-privacy-and-access.md).
+  Guardian and student accounts have never been seats and still are not; the pricing page said
+  so before the product could act on it.
 - **Postgres is Neon.** One branch per environment; the e2e harness owns a branch it wipes on
   every run. Migrations run at API boot.
 - **Jobs use a durable Postgres-backed queue** polled by the API. Redis/BullMQ was dropped; one

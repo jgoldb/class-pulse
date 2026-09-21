@@ -12,6 +12,7 @@ import { provisionFromInvitation, userBySubject } from './auth/clerk';
 import { buildActor } from './services/scope';
 import { registerAuthRoutes } from './routes/auth';
 import { registerCaseRoutes } from './routes/cases';
+import { registerClassroomRoutes } from './routes/classroom';
 import { registerPlanRoutes } from './routes/plans';
 import { registerSignalRoutes } from './routes/signals';
 import { registerPatternRoutes } from './routes/patterns';
@@ -95,6 +96,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
 
   registerAuthRoutes(app, ctx);
   registerCaseRoutes(app, ctx);
+  registerClassroomRoutes(app, ctx);
   registerPlanRoutes(app, ctx);
   registerSignalRoutes(app, ctx);
   registerPatternRoutes(app, ctx);

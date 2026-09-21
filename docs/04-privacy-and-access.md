@@ -95,6 +95,27 @@ someone.
 Individual access by an administrator requires an explicit `AuthorizationRecord` — who authorized
 it, for which student, why, and for how long — and writes an audit event.
 
+## Who may grant access
+
+Two people can widen someone's access, and the difference between them is the point.
+
+An **administrator** invites into any scope in their school: teachers onto sections, support
+professionals onto students, other administrators, and families. Those are the roles that cost an
+educator seat or carry school-wide reach, so they belong where a school's own authority sits.
+
+A **teacher** shapes their own class: the sections they teach, the students on those rosters, and
+the guardian and student accounts for those children. Nothing wider — no staff role, no second
+section that isn't theirs, no student in someone else's room. A teacher who signs up alone is
+therefore a working product on their own, without waiting for a central office to build a roster
+they already know by heart.
+
+Family and student accounts are free and always have been: plans sell educator seats, and a
+parent or a child is never one. Treating the family's dashboard as a purchase would be the wrong
+incentive on the one surface where transparency is the product.
+
+Both paths issue the same scoped `invitations` row and both write the same `authorization.grant`
+audit event; the actor's role on that event is what distinguishes them afterwards.
+
 ## Audit
 
 Append-only. Every read of individual student data, every plane join, every egress call, every

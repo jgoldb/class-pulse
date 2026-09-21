@@ -12,6 +12,7 @@ const SCREENS: Array<{ name: string; as: AccountKey | null; path: string; expect
   { name: '10-teacher-today', as: 'teacher', path: '/teacher', expectText: /Good (morning|afternoon|evening)/ },
   { name: '11-teacher-cases', as: 'teacher', path: '/teacher/cases', expectText: 'Cases' },
   { name: '12-teacher-intake', as: 'teacher', path: '/teacher/intake', expectText: 'New intake' },
+  { name: '15-teacher-my-class', as: 'teacher', path: '/teacher/class', expectText: 'Your sections and the students in them' },
   { name: '13-teacher-patterns', as: 'teacher', path: '/teacher/patterns', expectText: 'Pattern queue' },
   { name: '14-teacher-reviews', as: 'teacher', path: '/teacher/reviews', expectText: 'Plan reviews' },
   { name: '20-student', as: 'student', path: '/student', expectText: 'Hi Avery' },

@@ -70,7 +70,7 @@ export function GetStarted() {
               </div>
               <div className="mt-1 text-sm text-muted">{p.blurb}</div>
               <ul className="mt-4 space-y-1.5 text-sm">
-                {[`${p.seats} educator seats`, 'Unlimited student, family and support accounts', 'AI drafting with guardrails and evals', 'Pattern engine and equity monitoring'].map((f) => (
+                {[`${p.seats} educator seats`, 'Free, unlimited student and family accounts', 'AI drafting with guardrails and evals', 'Pattern engine and equity monitoring'].map((f) => (
                   <li key={f} className="flex items-center gap-2 text-muted">
                     <Check className="size-4 text-success" /> {f}
                   </li>
@@ -163,7 +163,7 @@ export function CheckoutPage() {
                 <span className="font-semibold tabular-nums">{s ? money(s.amountCents) : ''}</span>
               </div>
               <div className="text-sm text-muted">{s?.seats} educator seats · billed monthly after a 30-day trial</div>
-              <div className="mt-4 border-t border-border pt-3 text-sm text-muted">After payment you will create the administrator account and name your workspace and first school.</div>
+              <div className="mt-4 border-t border-border pt-3 text-sm text-muted">After payment you will create your account, then set up your own class or a whole school.</div>
             </CardBody>
           </Card>
         </FadeIn>

@@ -8,6 +8,7 @@ import { Onboarding } from './pages/public/Onboarding';
 import { TeacherShell } from './pages/teacher/TeacherShell';
 import { TeacherToday } from './pages/teacher/Today';
 import { CasesList } from './pages/teacher/CasesList';
+import { MyClass } from './pages/teacher/MyClass';
 import { IntakePage } from './pages/teacher/Intake';
 import { CaseDetail } from './pages/teacher/CaseDetail';
 import { DraftReview } from './pages/teacher/DraftReview';
@@ -74,6 +75,7 @@ export function App() {
       <Route path="/teacher" element={<RequireRole roles={TEACHERISH}><TeacherShell surface="teacher" /></RequireRole>}>
         <Route index element={<TeacherToday />} />
         <Route path="cases" element={<CasesList />} />
+        <Route path="class" element={<MyClass />} />
         <Route path="intake" element={<IntakePage />} />
         <Route path="cases/:caseKey" element={<CaseDetail />} />
         <Route path="cases/:caseKey/log" element={<QuickEntry />} />

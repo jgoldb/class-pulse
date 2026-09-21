@@ -26,6 +26,12 @@ ask them; do not build a throwaway substitute.
 ```
 npm test | npm run typecheck | npm run lint
 npm run seed            # --reset to wipe; uses DATABASE_URL, creates Clerk demo users, calls OpenAI
+npm run db:reseed -- --target <local|e2e|fly>   # reset + seed, after naming the target out loud
+npm run db:empty  -- --target <local|e2e|fly>   # drop everything, re-migrate, leave no rows
+                        # Both confirm first (--yes skips). `fly` runs the command inside the
+                        # machine over `fly ssh console`, against its own DATABASE_URL, and
+                        # restarts it afterwards; `empty` there needs an image built since
+                        # apps/api/src/db/empty.ts was added.
 npm run dev             # api :3001, web :5173   (port 4300 is reserved by the owner for another app)
 npm run e2e             # Playwright on :3011/:5174 against DATABASE_URL_E2E; e2e:fast reuses the seed
 npm run evals           # EVAL_PROMPT_VERSION=N to test a draft prompt

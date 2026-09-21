@@ -23,6 +23,8 @@
     "evals": "npm run evals --workspace packages/ai",
     "evals:patterns": "npm run evals --workspace packages/patterns",
     "db:generate": "npm run db:generate --workspace apps/api",
+    "db:reseed": "node scripts/db.mjs reseed",
+    "db:empty": "node scripts/db.mjs empty",
     "seed": "npm run seed --workspace apps/api",
     "deploy": "node scripts/deploy.mjs"
   },

@@ -1,0 +1,1 @@
+ALTER TABLE "working"."jobs" ADD COLUMN "lease_token" text;

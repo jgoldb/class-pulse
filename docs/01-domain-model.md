@@ -128,3 +128,44 @@ Adding grades, assessments, and attendance meaningfully widens the compliance su
 education records in their own right, and attendance in particular carries mandated-reporting
 pathways in many jurisdictions. See [04](04-privacy-and-access.md) and
 [07 — Open questions](07-open-questions.md).
+# Pulsera classroom extension (implementation in progress, 2026-09-30)
+
+Classroom observations no longer require a support case. `working.learners` and the protected
+`identified.learner_links` table supply a random learner identity; additive migration 0004
+backfills identity links and existing case references without changing legacy authorship or
+manufacturing approvals. New cases reuse an existing learner link when present.
+
+Class sessions snapshot date, school timezone, topic, objective, context and a versioned seating
+layout. Typed event revisions represent participation, praise, understanding, check-in, behavior,
+attendance and reviewed exit-ticket evidence. Missing ABC components and unmeasured counts
+remain null. A confirmed revision records its educator and time. Correction appends a revision;
+undo withdraws the event. Old revisions are not current history.
+
+Classroom drafts separate generation, review and publication state. Each content revision is
+immutable; an approval and publication are written atomically for a specific revision and intended
+audience. Draft source references use event IDs and revisions internally, with ephemeral source
+numbers at the AI boundary. Parent-message export is not delivery or portal sharing.
+
+Measured behavior and explicit attendance may be deliberately projected to the same learner's
+case in the same section. Projection is unique by event/revision/destination. Corrections retire
+the prior signal and invalidate dependent pattern candidates without altering their original
+adjudication records. Praise and unmeasured observations cannot be projected as numeric signals.
+
+Draft kinds include small-group practice, SST/MTSS/FBA-support evidence packets and three
+contextual Guide actions. `follow_up_tasks` require an exact approved artifact, a named teacher
+owner and due date. Changed evidence blocks completion until the action is reviewed again.
+
+`contributions`, immutable `contribution_revisions`, and `contribution_responses` preserve student
+or guardian authorship and the selected educator's response. Acknowledgement is distinct from
+acceptance. Correction resets acceptance; withdrawal and expiry remove eligibility. Help
+requests use a separate immediate inbox. `artifact_shares` explicitly grants a selected portal
+access to a current approved communication; approval alone never shares it.
+
+`classroom_plan_origins` records the base plan and exact event/contribution revisions behind an
+educator-proposed strategy change. Existing goals and baselines are copied without invented
+measurements; normal plan approval materializes the new version. Source corrections flag applied
+plans for educator review. Projected signal corrections also invalidate computed review evidence;
+`review_cycles.evidence_version` prevents a stale reviewer or narration worker saving old output.
+Case lists select plan version, so a later correction to an older plan cannot replace the current
+plan in navigation. Expired request receipts retain only author, request ID and record kind to
+prevent retrying a deleted pending submission from recreating its text.

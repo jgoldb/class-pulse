@@ -3,7 +3,7 @@ import { IntakeFields, newId, type Role } from '@class-pulse/domain';
 import { detectPii, hasHighConfidencePii } from '@class-pulse/ai/pii';
 import type { Actor, AppContext } from '../context';
 import { badRequest, forbidden, notFound } from '../context';
-import { cases, insufficientDataNotes, intakes, planDrafts, plans, safetyFlags } from '../db/schema';
+import { cases, classroomPlanOrigins, insufficientDataNotes, intakes, planDrafts, plans, safetyFlags } from '../db/schema';
 import { audit } from './audit';
 import { denyNamesForCase, openCaseForStudent } from './roster';
 
@@ -55,11 +55,12 @@ export async function listCasesForActor(ctx: AppContext, actor: Actor) {
   const keys = [...actor.scope.caseRoles.keys()];
   if (!keys.length) return [];
   const rows = await ctx.db.select().from(cases).where(inArray(cases.caseKey, keys));
-  const activePlans = await ctx.db.select({ caseKey: plans.caseKey, status: plans.status, id: plans.id, updatedAt: plans.updatedAt }).from(plans).where(inArray(plans.caseKey, keys));
+  const activePlans = await ctx.db.select({ caseKey: plans.caseKey, status: plans.status, id: plans.id, updatedAt: plans.updatedAt, version: plans.version }).from(plans).where(inArray(plans.caseKey, keys));
   const drafts = await ctx.db.select({ caseKey: planDrafts.caseKey, status: planDrafts.status, id: planDrafts.id }).from(planDrafts).where(inArray(planDrafts.caseKey, keys));
+  const origins = drafts.length ? await ctx.db.select().from(classroomPlanOrigins).where(inArray(classroomPlanOrigins.draftId, drafts.map((d) => d.id))) : [];
   return rows.map((c) => {
-    const plan = activePlans.filter((p) => p.caseKey === c.caseKey).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
-    const draft = drafts.filter((d) => d.caseKey === c.caseKey).at(-1) ?? null;
+    const plan = activePlans.filter((p) => p.caseKey === c.caseKey).sort((a, b) => b.version - a.version)[0] ?? null;
+    const draft = drafts.filter((d) => { const origin = origins.find((o) => o.draftId === d.id); return d.caseKey === c.caseKey && (!origin || (origin.createdBy === actor.userId && actor.scope.teacherSectionIds.has(origin.sectionId))); }).at(-1) ?? null;
     return { caseKey: c.caseKey, gradeLevel: c.gradeLevel, status: c.status, sectionId: c.sectionId, role: actor.scope.caseRoles.get(c.caseKey)!, plan, latestDraft: draft, createdAt: c.createdAt };
   });
 }

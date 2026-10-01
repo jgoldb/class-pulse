@@ -6,13 +6,17 @@ import type { AppContext } from '../context';
 import { conflict, notFound } from '../context';
 import { goals, planDrafts, plans } from '../db/schema';
 import { requireTeacherLike } from '../services/cases';
-import { addGoal, addStrategy, approveDraft, discardDraft, getDraft, planWithChildren, transitionPlan, updateGoal, updateStrategy } from '../services/plans';
+import { addGoal, addStrategy, approveDraft, discardDraft, getDraft, planWithChildren, reviewPlanSourceChange, transitionPlan, updateGoal, updateStrategy } from '../services/plans';
 import { requestReviewNow } from '../services/reviews';
 import { progressForGoal } from '../services/signals';
 
 const Id = z.object({ id: z.string() });
 
 export function registerPlanRoutes(app: FastifyInstance, ctx: AppContext) {
+  app.post('/api/plans/:id/source-review', (req) => {
+    const body = z.object({ expectedUpdatedAt: z.string().datetime({ offset: true }), rationale: z.string().trim().min(5).max(2000) }).strict().parse(req.body);
+    return reviewPlanSourceChange(ctx, req.actor!, Id.parse(req.params).id, new Date(body.expectedUpdatedAt), body.rationale);
+  });
   app.get('/api/drafts/:id', async (req) => getDraft(ctx, req.actor!, Id.parse(req.params).id));
 
   app.post('/api/drafts/:id/approve', async (req) => {
@@ -30,6 +34,7 @@ export function registerPlanRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post('/api/drafts/:id/regenerate', async (req, reply) => {
     const draft = await getDraft(ctx, req.actor!, Id.parse(req.params).id);
     if (draft.status === 'approved') throw conflict('Draft already approved');
+    if (draft.classroomOrigin) throw conflict('Prepare a new classroom revision from current approved sources instead of regenerating the legacy intake');
     const newDraftId = newId();
     await ctx.db.insert(planDrafts).values({ id: newDraftId, caseKey: draft.caseKey, intakeId: draft.intakeId, status: 'queued', createdBy: req.actor!.userId });
     await ctx.queue.enqueue('generate_plan', { draftId: newDraftId, caseKey: draft.caseKey });

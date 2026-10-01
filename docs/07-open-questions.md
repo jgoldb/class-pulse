@@ -1,5 +1,10 @@
 # 07 — Open questions
 
+These questions belong to the original build; [08 - Implementation notes](08-implementation-notes.md)
+records decisions already taken. The [Pulsera implementation plan](09-pulsera-implementation-plan.md#open-questions)
+contains the question register for the proposed classroom expansion, including recommended
+defaults, decision owners, and the phases they block.
+
 Decisions that change the shape of the build. Roughly ordered by how early they need an answer.
 
 ## Blocking Phase 0

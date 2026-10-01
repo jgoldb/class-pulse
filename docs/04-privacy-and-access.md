@@ -142,3 +142,55 @@ something happened to their child behind a screen they were never shown.
 Retention and deletion policy per record type. Data-portability export. Incident-response
 runbook. Subprocessor inventory. Annual access review. Required for the operational posture in
 [00](00-overview.md); explicitly deferred for the demonstration posture.
+# Pulsera development decisions (2026-09-30)
+
+The requesting owner approved the plan's Q1–Q3 defaults for synthetic development. Pending
+classroom text is restricted to the author with a current teaching assignment in its section.
+Co-teaching, case access, and a shared learner key do not expose another educator's private
+classroom records. Families, students, and administrators do not receive classroom drafts.
+Roster and learner identity joins are audited. Confirmation and correction audit entries contain
+IDs, versions and actor metadata rather than copies of observation/draft text.
+
+Workspace rollout is disabled by default. An administrator responsible for every school in the
+workspace may enable it only in demonstration posture with synthetic learners. Disabling removes
+entry points and blocks capture while preserving records. School timezone is explicit and is
+snapshotted into each session.
+
+Synthetic development uses a 30-day expiry for unapproved event and artifact text and a 120-day
+window for evidence used in classroom drafting. The cleanup service removes expired unapproved
+content and removes associated expiring provider-payload text, while preserving approval and audit metadata.
+New classroom egress metadata remains append-only and contains a hash/reference; the exact
+payload is retained separately for 30 days. Existing egress and audit immutability are unchanged.
+Previously published records remain subject to the future school retention decision. These are
+engineering defaults, not approved school retention rules. No persistent browser storage or raw
+audio storage is used. External transcription remains unavailable until Q4 is approved.
+
+No school, teacher champion, approved audio provider, or school-policy sign-offs have been
+supplied. Operational privacy review, backup/restore evidence, approved-record deletion/export,
+and school retention decisions are still real-student pilot gates.
+
+Contributions are private to their author and selected currently assigned teacher. Authors need
+a current student/guardian relationship; teachers need the section assignment and current learner
+enrollment. Acceptance admits the exact version into that teacher's memory, with the reporter
+role retained. Corrections, withdrawal, expiry and revoked relationships remove eligibility.
+Pending contributions expire after 30 days; accepted contribution content expires 120 days after
+acceptance, and memory additionally limits retrieval to submissions from the last 120 days.
+Sensitive sleep/mood collection is unavailable pending a school's collection policy.
+
+Families and students see only current approved communications explicitly shared to their
+audience, plus their existing role-filtered support information. Portal sharing is reversible and
+does not imply external delivery or receipt. Help requests are routed separately without approval
+or AI; their acknowledged status is not a guarantee of emergency monitoring. Their eventual
+retention belongs in the school's approved-record policy.
+
+Cleanup includes withdrawn/superseded unconfirmed event revisions, unapproved artifact revisions
+even when a prior version was published, and pending classroom-informed plan revisions. Approved
+versions and audit metadata remain preserved. Content-free retry receipts prevent old requests
+from resurrecting expired submissions. Source retirement invalidates dependent drafts, projected
+signals, candidate interpretations and review narratives; approved actions are flagged for human
+review rather than silently rewritten. Approved artifact exports include protected display names
+and source times only after authorized reads; classroom provider payloads never include those joins.
+
+Insights return fixed aggregate categories only, with small-cell and complementary suppression;
+there are no learner names, free-text dimensions or individual drilldowns in the new endpoint.
+See [10 - Pilot runbook](10-pulsera-pilot-runbook.md) for the operational evidence still required.

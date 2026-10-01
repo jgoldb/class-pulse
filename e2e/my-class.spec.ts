@@ -49,7 +49,7 @@ test('the teacher opens the family dashboard, and says in plain language what it
   await page.getByTestId('access-email').fill(PARENT);
   await page.getByTestId('send-access').click();
   await expectToast(page, /Invitation sent|access is on now/);
-  await expect(page.getByText(PARENT)).toBeVisible();
+  await expect(page.getByText(PARENT, { exact: true })).toBeVisible();
   await expect(page.getByText('Invited').first()).toBeVisible();
 
   const dir = `e2e/screenshots/${info.project.name}`;

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   DismissalReason,
   canTransitionCandidate,
@@ -57,7 +57,7 @@ export async function detectionContextFor(ctx: AppContext, caseKey: string): Pro
 export async function sweepOneCase(ctx: AppContext, caseKey: string, opts: { capPerTeacher?: number } = {}) {
   const [c] = await ctx.db.select().from(cases).where(eq(cases.caseKey, caseKey)).limit(1);
   if (!c || c.status !== 'open') return { created: 0, insufficient: 0 };
-  const existing = await ctx.db.select().from(patternCandidates).where(eq(patternCandidates.caseKey, caseKey));
+  const existing = await ctx.db.select().from(patternCandidates).where(and(isNull(patternCandidates.sourceInvalidatedAt), eq(patternCandidates.caseKey, caseKey)));
   const detection = await detectionContextFor(ctx, caseKey);
   const outcome = sweepCase(detection, {
     definitions: PATTERN_CATALOG,
@@ -76,7 +76,7 @@ export async function sweepOneCase(ctx: AppContext, caseKey: string, opts: { cap
   const visibleActive = await ctx.db
     .select({ id: patternCandidates.id })
     .from(patternCandidates)
-    .where(and(inArray(patternCandidates.caseKey, sectionCases.map((x) => x.caseKey)), eq(patternCandidates.visible, true), inArray(patternCandidates.status, ['detected', 'in_review'])));
+    .where(and(isNull(patternCandidates.sourceInvalidatedAt), inArray(patternCandidates.caseKey, sectionCases.map((x) => x.caseKey)), eq(patternCandidates.visible, true), inArray(patternCandidates.status, ['detected', 'in_review'])));
   const cap = opts.capPerTeacher ?? ctx.config.patternMaxActivePerTeacher;
   const visibleNew = outcome.candidates.filter((x) => x.visible).map((x) => ({ strength: x.result.strength, cand: x }));
   const { surface, hold } = applyTeacherCap(visibleNew, visibleActive.length, cap);
@@ -120,7 +120,7 @@ export async function sweepAllCases(ctx: AppContext) {
 /** Interpretation job: build the de-identified payload (docs/02 §2) and persist the proposal. */
 export async function interpretCandidate(ctx: AppContext, candidateId: string) {
   const [cand] = await ctx.db.select().from(patternCandidates).where(eq(patternCandidates.id, candidateId)).limit(1);
-  if (!cand) return;
+  if (!cand || cand.sourceInvalidatedAt) return;
   const def = definitionById(cand.definitionId);
   if (!def) return;
   const detection = await detectionContextFor(ctx, cand.caseKey);
@@ -162,7 +162,7 @@ export async function candidatesForActor(ctx: AppContext, actor: Actor, queue: '
   const rows = await ctx.db
     .select()
     .from(patternCandidates)
-    .where(and(inArray(patternCandidates.caseKey, keys), eq(patternCandidates.visible, true), inArray(patternCandidates.routing, routing)))
+    .where(and(isNull(patternCandidates.sourceInvalidatedAt), inArray(patternCandidates.caseKey, keys), eq(patternCandidates.visible, true), inArray(patternCandidates.routing, routing)))
     .orderBy(desc(patternCandidates.strength), desc(patternCandidates.detectedAt));
   return rows.filter((r) => canAdjudicate(actor.scope.caseRoles.get(r.caseKey)!, r.routing as PatternRouting) || r.status !== 'detected');
 }
@@ -170,13 +170,14 @@ export async function candidatesForActor(ctx: AppContext, actor: Actor, queue: '
 export async function candidatesForCase(ctx: AppContext, actor: Actor, caseKey: string, includeInvisible = false) {
   const role = roleForCase(actor, caseKey);
   const teacherLike = role === 'teacher' || role === 'support_professional' || role === 'administrator_authorized';
-  const rows = await ctx.db.select().from(patternCandidates).where(eq(patternCandidates.caseKey, caseKey)).orderBy(desc(patternCandidates.detectedAt));
+  const rows = await ctx.db.select().from(patternCandidates).where(and(isNull(patternCandidates.sourceInvalidatedAt), eq(patternCandidates.caseKey, caseKey))).orderBy(desc(patternCandidates.detectedAt));
   return rows.filter((r) => (teacherLike ? includeInvisible || r.visible : r.status === 'confirmed'));
 }
 
 export async function getCandidate(ctx: AppContext, actor: Actor, id: string) {
   const [cand] = await ctx.db.select().from(patternCandidates).where(eq(patternCandidates.id, id)).limit(1);
   if (!cand) throw notFound('Candidate not found');
+  if (cand.sourceInvalidatedAt) throw conflict('Source evidence changed; this candidate must be reviewed from current evidence');
   roleForCase(actor, cand.caseKey);
   return cand;
 }
@@ -243,7 +244,7 @@ export async function adjudicate(ctx: AppContext, actor: Actor, id: string, inpu
 
 /** Re-evaluate a needs_more_data candidate once its collection target is reached (docs/02 §3). */
 export async function reevaluateNeedsMoreData(ctx: AppContext, caseKey: string) {
-  const rows = await ctx.db.select().from(patternCandidates).where(and(eq(patternCandidates.caseKey, caseKey), eq(patternCandidates.status, 'needs_more_data')));
+  const rows = await ctx.db.select().from(patternCandidates).where(and(isNull(patternCandidates.sourceInvalidatedAt), eq(patternCandidates.caseKey, caseKey), eq(patternCandidates.status, 'needs_more_data')));
   if (!rows.length) return;
   const all = await signalsForCase(ctx, caseKey, 120);
   for (const r of rows) {

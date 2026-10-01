@@ -12,7 +12,7 @@ function AuthFrame({ children, side }: { children: React.ReactNode; side: React.
           <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
             <Activity className="size-4" />
           </span>
-          <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>
+          <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
         </Link>
         <div className="max-w-md">{side}</div>
         <div className="text-xs text-subtle">Names never reach the model. Every decision stays with a person.</div>
@@ -23,7 +23,7 @@ function AuthFrame({ children, side }: { children: React.ReactNode; side: React.
             <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
               <Activity className="size-4" />
             </span>
-            <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>
+            <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
           </Link>
           {children}
         </FadeIn>
@@ -68,7 +68,7 @@ export function SignUpPage() {
               ? 'Whoever invited you has already set your role and what you can see. Create your account and you will land in the right place.'
               : checkout
                 ? 'Payment is confirmed. Create your account, then set up your class or your school.'
-                : 'Class Pulse is invitation-based. If you are starting a new workspace, begin with a plan; otherwise use the invitation link you were sent.'}
+                : 'Pulsera is invitation-based. If you are starting a new workspace, begin with a plan; otherwise use the invitation link you were sent.'}
           </p>
           {!invited && !checkout && (
             <Link to="/get-started" className="mt-4 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline">

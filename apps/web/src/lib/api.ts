@@ -50,7 +50,7 @@ export function fmtDateTime(d: string | Date | null | undefined): string {
 
 export function humanize(s: string | null | undefined): string {
   if (!s) return '';
-  return s.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  return s.replace(/([a-z0-9])([A-Z])/g, (_match, before: string, next: string) => `${before} ${next.toLowerCase()}`).replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
 
 export function money(cents: number): string {

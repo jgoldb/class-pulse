@@ -9,6 +9,8 @@ import { activePrompts } from '../services/prompts';
 import { narrateCycle, openDueReviews } from '../services/reviews';
 import { denyNamesForCase } from '../services/roster';
 import type { JobEnvelope } from './queue';
+import { runClassroomGeneration } from '../services/artifacts';
+import { prepareTomorrow } from '../services/tomorrow';
 
 /**
  * Generation service (docs/05): build the de-identified payload via the gate → call model →
@@ -52,6 +54,12 @@ export function makeJobHandler(ctx: AppContext) {
   return async (job: JobEnvelope): Promise<void> => {
     ctx.log.info({ job: job.type, id: job.id, attempt: job.attempts }, 'job start');
     switch (job.type) {
+      case 'prepare_tomorrow':
+        await prepareTomorrow(ctx, String(job.payload.teacherId), String(job.payload.sectionId), String(job.payload.preparedDate));
+        break;
+      case 'generate_classroom':
+        await runClassroomGeneration(ctx, String(job.payload.draftId));
+        break;
       case 'generate_plan':
         await runGeneratePlan(ctx, String(job.payload.draftId));
         break;

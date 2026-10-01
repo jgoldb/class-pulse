@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { PATTERN_CATALOG } from '@class-pulse/patterns';
 import { disproportionalityIndex, publishable, suppressCells } from '@class-pulse/policy';
 import type { Actor, AppContext } from '../context';
@@ -65,7 +65,7 @@ export async function catalogHealth(ctx: AppContext, actor: Actor) {
   const min = ctx.config.adminMinCellSize;
   const allCases = schoolIds.length ? await ctx.db.select().from(cases).where(inArray(cases.schoolId, schoolIds)) : [];
   const keys = allCases.map((c) => c.caseKey);
-  const cands = keys.length ? await ctx.db.select().from(patternCandidates).where(inArray(patternCandidates.caseKey, keys)) : [];
+  const cands = keys.length ? await ctx.db.select().from(patternCandidates).where(and(inArray(patternCandidates.caseKey, keys), isNull(patternCandidates.sourceInvalidatedAt))) : [];
   const overrides = new Map((await ctx.db.select().from(definitionStatus)).map((r) => [r.definitionId, r]));
   return PATTERN_CATALOG.map((d) => {
     const mine = cands.filter((c) => c.definitionId === d.id);
@@ -111,7 +111,7 @@ export async function equityMonitor(ctx: AppContext, actor: Actor) {
   const pop = await ctx.db.select({ id: students.id, demographics: students.demographics }).from(students).where(inArray(students.schoolId, schoolIds));
   const links = pop.length ? await ctx.db.select().from(caseLinks).where(inArray(caseLinks.studentId, pop.map((p) => p.id))) : [];
   const keys = links.map((l) => l.caseKey);
-  const cands = keys.length ? await ctx.db.select({ caseKey: patternCandidates.caseKey, definitionId: patternCandidates.definitionId, status: patternCandidates.status }).from(patternCandidates).where(and(inArray(patternCandidates.caseKey, keys), eq(patternCandidates.visible, true))) : [];
+  const cands = keys.length ? await ctx.db.select({ caseKey: patternCandidates.caseKey, definitionId: patternCandidates.definitionId, status: patternCandidates.status }).from(patternCandidates).where(and(isNull(patternCandidates.sourceInvalidatedAt), inArray(patternCandidates.caseKey, keys), eq(patternCandidates.visible, true))) : [];
   const caseToStudent = new Map(links.map((l) => [l.caseKey, l.studentId]));
   const firedStudents = new Set(cands.map((c) => caseToStudent.get(c.caseKey)!));
   const confirmedStudents = new Set(cands.filter((c) => c.status === 'confirmed').map((c) => caseToStudent.get(c.caseKey)!));
@@ -182,7 +182,7 @@ export async function quickEntryHealth(ctx: AppContext, actor: Actor) {
   const schoolIds = requireAdmin(actor);
   const allCases = schoolIds.length ? await ctx.db.select({ caseKey: cases.caseKey }).from(cases).where(inArray(cases.schoolId, schoolIds)) : [];
   const keys = allCases.map((c) => c.caseKey);
-  const rows = keys.length ? await ctx.db.select({ type: signals.type, source: signals.source, tags: signals.contextTags }).from(signals).where(inArray(signals.caseKey, keys)) : [];
+  const rows = keys.length ? await ctx.db.select({ type: signals.type, source: signals.source, tags: signals.contextTags }).from(signals).where(and(inArray(signals.caseKey, keys), isNull(signals.retiredAt))) : [];
   const teacher = rows.filter((r) => r.source === 'teacher_entry');
   return {
     teacherEntries: teacher.length,

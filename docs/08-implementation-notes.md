@@ -7,7 +7,7 @@ Written alongside the first full implementation (September 2026).
 
 Phases 0–7 of the [roadmap](06-roadmap.md) are implemented and demonstrable on synthetic data.
 The repository runs with no external services (embedded Postgres, in-process job queue, mock
-model provider) and switches to real Postgres, Redis and the OpenAI API by environment variable.
+model provider) and switches to real Postgres and the OpenAI API by environment variable.
 
 | Phase | Exit criterion | Where it is proven |
 |---|---|---|
@@ -167,3 +167,74 @@ portability, incident-response runbook, subprocessor inventory (OpenAI DPA, zero
 confirmation), annual access review. Plus: a real teacher for the 15-second measurement, a
 behavioral-assessment reviewer for every threshold, and an SIS mapping layer for grades and
 attendance.
+# Pulsera expansion progress — 2026-09-30
+
+This section records the ongoing implementation of plan 09; it does not mark that plan complete.
+The user approved Q1–Q3 defaults for synthetic development and confirmed there are no pilot or
+provider sign-offs. Existing user changes to the roadmap and question register are preserved.
+
+Implemented so far: additive learner/session/seating/event migrations; author-and-section-scoped
+no-case capture; versioned confirmation/correction/undo; CSV preview and atomic import preserving
+existing identity/family links; feature rollback; classroom draft generation through the egress
+gate; classroom-specific prompt eval/promotion; versioned editing and atomic approval/publication;
+export-only communication; teacher-local Tomorrow schedules with school timezones, closures and
+DST handling; source invalidation and unapproved-content expiry. The teacher navigation introduces
+Class Pulse, Students, Drafts, Tomorrow and Support while keeping existing deep links.
+
+Additional implementation: reviewed small groups; typed SST/MTSS/FBA-support packets; contextual
+Guide actions; approved owner/due-date follow-ups; no-case student/family profiles and multiple
+children; explicit portal sharing; attributed contributions, correction and educator responses;
+separate help routing; relational Classroom Memory; educator-proposed plan revisions with source
+attribution and unchanged baselines; aggregate participation, instruction, follow-up and
+documentation Insights with complementary suppression. Public branding now uses Pulsera.
+
+Corrections retire projected signals and candidate interpretations, flag applied plans for source
+review and invalidate dependent review recommendations/narratives. Review refresh increments the
+evidence version; stale decisions and narration writes cannot apply. Expiry removes pending text,
+including superseded/withdrawn revisions and pending plan proposals; content-free receipts reject
+old retries. Plan revisions snapshot current goals and strategies, including actions added after
+initial approval, and reject base changes before publication. Pending snapshots expire with their
+proposal. Additive migrations 0004–0015 preserve original approvals and provenance.
+
+Verification checkpoint (2026-09-30): **172 tests across 14 Vitest files passed**, including the
+15-case classroom prompt suite against the test provider. All six workspace typechecks and lint
+passed. Production web build passed, with existing bundle-size/circular-chunk and dependency
+annotation warnings. Six isolated browser walkthroughs passed: capture/retry/correction,
+draft edit/approve/share/export, and family contribution/teacher response/correction, each at
+desktop and phone sizes. Screenshots were inspected; no horizontal overflow was observed.
+The browser harness intercepts API responses and does not verify live Clerk/Neon/model access.
+The retention-focused API suite also passed after the final cleanup adjustments.
+
+Queue recovery now renews live handlers' 15-minute leases every minute. A unique token per claim
+prevents an old handler's heartbeat, completion or failure from overwriting reclaimed or explicitly
+re-enqueued work; queue timestamps use the database clock. Ten queue tests cover competing workers,
+renewal, abandoned-job recovery, replaced jobs and fencing of a previous owner after reclamation.
+This is at-least-once processing: handlers retain idempotent effects because a database outage
+longer than the lease can still allow another worker to claim the job. Stop old workers before
+deploying the lease-token migration; an older binary cannot honor the new ownership token.
+
+Live verification used the dedicated E2E database after verifying that it was separate from the
+main database and contained only synthetic learners, with Clerk development keys. The full suite
+was exercised, followed by focused repairs and reruns: 56 selected checks passed together, then
+the student check-in and classroom workflow passed separately. Earlier review, navigation and
+quick-entry checks passed. This is evidence across runs, not a claim of a clean full-suite run
+from one final reset. Desktop and phone screen sweeps passed. The classroom flow verified UI
+evaluation/promotion, capture/correction, generation/approval, separate family sharing, attributed
+family input and educator approval of a plan revision. Test cleanup restores the feature flag.
+The browser fixes included explicit waits after asynchronous saves/signup, selecting the intended
+learner/contribution, and selecting a goal without depending on generated wording.
+
+Outstanding delivery: school-approved voice implementation, school-specific retention/deletion and
+portability, backup/restore and incident exercises, representative assistive-technology/device
+checks, educator template/threshold review, the school-selected additional integration and measured
+pilot workload/value. [10 - Pilot runbook](10-pulsera-pilot-runbook.md) gives procedures and an
+evidence register. These require inputs or environments not established by local automation.
+Neither plan 09 nor real-student pilot readiness is complete.
+
+Live classroom prompt evaluation found v2 passed 13/15. V3 adds service-formatted evidence and
+clearer wording constraints without weakening guardrails, and passed 15/15 on `gpt-5.6-terra`.
+Reports are in `docs/evidence/`. The live browser sweep also led to a persistent classroom-settings
+confirmation, accessible family correction labels, a single top-level profile heading, and
+classroom prompt evaluation controls in administration. V3 also passed its 15-case evaluation
+through administration and was promoted in the synthetic E2E database. New deployments still
+require their own passing evaluation and explicit promotion.

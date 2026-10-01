@@ -19,6 +19,7 @@ import { registerPatternRoutes } from './routes/patterns';
 import { registerReviewRoutes } from './routes/reviews';
 import { registerAdminRoutes } from './routes/admin';
 import { registerPiiRoutes } from './routes/pii';
+import { registerPulseRoutes } from './routes/pulse';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -103,6 +104,7 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   registerReviewRoutes(app, ctx);
   registerAdminRoutes(app, ctx);
   registerPiiRoutes(app, ctx);
+  registerPulseRoutes(app, ctx);
 
   // In a deployed container the API also serves the built SPA, so the app is one origin and the
   // relative /api and /auth fetches in apps/web/src/lib/api.ts need no CORS and no rewrite. In

@@ -6,6 +6,9 @@ import { PATTERN_INTERPRETATION_V1 } from './pattern_interpretation.v1';
 import { REVIEW_NARRATION_V1 } from './review_narration.v1';
 import { GUARDRAIL_CLASSIFIER_V1 } from './guardrail_classifier.v1';
 import { EVAL_JUDGE_V1 } from './eval_judge.v1';
+import { CLASSROOM_DRAFT_V1 } from './classroom_draft.v1';
+import { CLASSROOM_DRAFT_V2 } from './classroom_draft.v2';
+import { CLASSROOM_DRAFT_V3 } from './classroom_draft.v3';
 
 /**
  * The prompt registry seed (docs/03). Files are immutable; a new version is a new file with a
@@ -17,6 +20,24 @@ import { EVAL_JUDGE_V1 } from './eval_judge.v1';
  * pinned model id is still possible per version.
  */
 export const PROMPT_SEEDS: ReadonlyArray<Omit<PromptVersion, 'createdAt'>> = [
+  {
+    id: 'classroom_draft.v1', surface: 'classroom_draft', version: 1, body: CLASSROOM_DRAFT_V1,
+    model: 'default', params: { reasoningEffort: null, maxTokens: 3000 },
+    changelog: 'Teacher-reviewed classroom drafts with explicit evidence, missing ABC values and no inferred mastery. Requires classroom evals before promotion.',
+    createdBy: 'system', status: 'draft',
+  },
+  {
+    id: 'classroom_draft.v2', surface: 'classroom_draft', version: 2, body: CLASSROOM_DRAFT_V2,
+    model: 'default', params: { reasoningEffort: null, maxTokens: 12000 },
+    changelog: 'Adds temporary practice groups, evidence-only report templates, and contextual Guide actions. Requires expanded classroom evals and educator template validation before pilot use.',
+    createdBy: 'system', status: 'draft',
+  },
+  {
+    id: 'classroom_draft.v3', surface: 'classroom_draft', version: 3, body: CLASSROOM_DRAFT_V3,
+    model: 'default', params: { reasoningEffort: null, maxTokens: 12000 },
+    changelog: 'Responds to live v2 evaluation failures: copy service-formatted evidence exactly and keep limitations free of prohibited causal/determination language. Requires passing live classroom evals before promotion.',
+    createdBy: 'system', status: 'draft',
+  },
   {
     id: 'plan_generation.v1',
     surface: 'plan_generation',

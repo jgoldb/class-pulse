@@ -208,7 +208,7 @@ async function main2(existingApp?: Awaited<ReturnType<typeof createApp>>) {
   const links = await db.select().from(caseLinks);
   const allCases = await db.select().from(cases);
   console.log(`\nSeed complete: ${studentIds.length} synthetic students, ${allCases.length} cases, ${links.length} case links.`);
-  console.log(`Demo sign-in: ${DEMO_ACCOUNTS.map((a) => a.email).join(', ')}  password: ${DEMO_PASSWORD}`);
+  console.log(`Demo sign-in: ${DEMO_ACCOUNTS.map((a) => a.email).join(', ')}. Password: use SEED_PASSWORD or the documented development default.`);
   await app.close();
 }
 

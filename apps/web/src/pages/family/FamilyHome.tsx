@@ -12,10 +12,10 @@ import { TargetBadge } from '../../components/GoalCard';
  * summaries, accomplishments, home support, plan provenance, confirmed patterns in plain
  * language, what data is collected and why, and a correction pathway.
  */
-export function FamilyHome() {
+export function FamilyHome({ selectedCaseKey }: { selectedCaseKey?: string } = {}) {
   const qc = useQueryClient();
   const cases = useQuery({ queryKey: ['cases'], queryFn: () => api.get<CaseListItem[]>('/api/cases') });
-  const caseKey = cases.data?.find((c) => c.plan?.status === 'active')?.caseKey ?? cases.data?.[0]?.caseKey;
+  const caseKey = selectedCaseKey ?? cases.data?.find((c) => c.plan?.status === 'active')?.caseKey ?? cases.data?.[0]?.caseKey;
   const view = useQuery({ queryKey: ['case', caseKey], queryFn: () => api.get<CaseView>(`/api/cases/${caseKey}`), enabled: !!caseKey });
   const [subject, setSubject] = useState('');
   const [detail, setDetail] = useState('');
@@ -41,7 +41,7 @@ export function FamilyHome() {
       <div className="flex items-center gap-4">
         <Avatar name={v.student?.displayName ?? 'Your child'} size="xl" />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{v.student?.displayName ?? 'Your child'}</h1>
+          {selectedCaseKey ? <h3 className="text-xl font-bold tracking-tight">{v.student?.displayName ?? 'Your child'}</h3> : <h1 className="text-2xl font-bold tracking-tight">{v.student?.displayName ?? 'Your child'}</h1>}
           <p className="text-sm text-muted">Grade {v.case_gradeLevel} · plan {humanize(v.plan_status) || '—'}</p>
         </div>
       </div>
@@ -179,10 +179,10 @@ export function FamilyHome() {
                 </div>
               ))}
               <Field label="Subject">
-                <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+                <Input aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
               </Field>
               <Field label="What should be corrected?">
-                <Textarea rows={2} value={detail} onChange={(e) => setDetail(e.target.value)} />
+                <Textarea aria-label="What should be corrected?" rows={2} value={detail} onChange={(e) => setDetail(e.target.value)} />
               </Field>
               {correction.isError && <Callout tone="danger">Could not send the request.</Callout>}
               <Button size="sm" disabled={!subject.trim() || !detail.trim()} loading={correction.isPending} onClick={() => correction.mutate()}>

@@ -1,9 +1,9 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { newId } from '@class-pulse/domain';
 import type { Db } from '../db/client';
 import { jobs } from '../db/schema';
 
-export type JobType = 'generate_plan' | 'interpret_candidate' | 'narrate_review' | 'sweep_case' | 'sweep_all' | 'open_due_reviews';
+export type JobType = 'generate_plan' | 'interpret_candidate' | 'narrate_review' | 'sweep_case' | 'sweep_all' | 'open_due_reviews' | 'generate_classroom' | 'prepare_tomorrow';
 
 export interface JobEnvelope {
   id: string;
@@ -33,10 +33,9 @@ const MAX_ATTEMPTS = 3;
 
 /**
  * How long a job may sit in 'running' before another worker treats it as abandoned and takes it
- * back. A claim refreshes `updated_at`, so this is effectively a lease with no heartbeat: it is
- * safe only while it stays well above the slowest job. Generation is seconds to tens of seconds
- * (docs/05), so fifteen minutes is a wide margin — but anything that could legitimately run
- * longer than this needs a heartbeat before it can be enqueued here.
+ * back. Live handlers renew their own lease every minute. An ownership token fences heartbeat
+ * and completion writes after a job is reclaimed or explicitly re-enqueued. Handlers still need
+ * idempotent effects: losing database access for the entire lease permits another worker to run.
  */
 const STALE_AFTER_SECONDS = 15 * 60;
 
@@ -48,6 +47,7 @@ interface ClaimedRow {
   type: string;
   payload: Record<string, unknown>;
   attempts: number;
+  lease_token: string;
 }
 
 export class InProcessQueue implements JobQueue {
@@ -60,6 +60,7 @@ export class InProcessQueue implements JobQueue {
   constructor(
     private readonly db: Db,
     private readonly pollMs = 1000,
+    private readonly heartbeatMs = 60_000,
   ) {}
 
   async enqueue(type: JobType, payload: Record<string, unknown>, opts: { delayMs?: number; dedupeKey?: string } = {}): Promise<string> {
@@ -73,7 +74,7 @@ export class InProcessQueue implements JobQueue {
     await this.db
       .insert(jobs)
       .values({ id, type, payload, runAt })
-      .onConflictDoUpdate({ target: jobs.id, set: { payload, runAt, status: 'queued', attempts: 0, error: null, updatedAt: new Date() } });
+      .onConflictDoUpdate({ target: jobs.id, set: { payload, runAt, status: 'queued', attempts: 0, leaseToken: null, error: null, updatedAt: sql`now()` } });
     return id;
   }
 
@@ -115,7 +116,7 @@ export class InProcessQueue implements JobQueue {
   private async claim(): Promise<ClaimedRow | null> {
     const res = await this.db.execute(sql`
       UPDATE working.jobs
-         SET status = 'running', attempts = attempts + 1, updated_at = now()
+         SET status = 'running', attempts = attempts + 1, lease_token = ${newId()}, updated_at = now()
        WHERE id = (
          SELECT id FROM working.jobs
           WHERE status = 'queued' AND run_at <= now()
@@ -123,7 +124,7 @@ export class InProcessQueue implements JobQueue {
           LIMIT 1
           FOR UPDATE SKIP LOCKED
        )
-      RETURNING id, type, payload, attempts
+      RETURNING id, type, payload, attempts, lease_token
     `);
     const [row] = (res as unknown as { rows: ClaimedRow[] }).rows;
     return row ?? null;
@@ -136,6 +137,7 @@ export class InProcessQueue implements JobQueue {
       UPDATE working.jobs
          SET status = CASE WHEN attempts >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
              error = COALESCE(error, 'worker stopped before finishing this job'),
+             lease_token = NULL,
              updated_at = now()
        WHERE status = 'running'
          AND updated_at < now() - (${STALE_AFTER_SECONDS} * interval '1 second')
@@ -149,15 +151,27 @@ export class InProcessQueue implements JobQueue {
     for (;;) {
       const job = await this.claim();
       if (!job) break;
+      const ownsLease = and(eq(jobs.id, job.id), eq(jobs.status, 'running'), eq(jobs.leaseToken, job.lease_token));
+      let renewing: Promise<unknown> | null = null;
+      const heartbeat = setInterval(() => {
+        if (renewing) return;
+        renewing = this.db.update(jobs).set({ updatedAt: sql`now()` }).where(ownsLease)
+          .catch(() => { console.error('[jobs] lease renewal failed; awaiting database recovery'); })
+          .finally(() => { renewing = null; });
+      }, this.heartbeatMs);
+      heartbeat.unref?.();
       try {
         await this.handler({ id: job.id, type: job.type as JobType, payload: job.payload, attempts: job.attempts });
-        await this.db.update(jobs).set({ status: 'done', updatedAt: new Date() }).where(eq(jobs.id, job.id));
+        await this.db.update(jobs).set({ status: 'done', leaseToken: null, updatedAt: sql`now()` }).where(ownsLease);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         await this.db
           .update(jobs)
-          .set({ status: job.attempts >= MAX_ATTEMPTS ? 'failed' : 'queued', error: message, runAt: new Date(Date.now() + 5_000 * job.attempts), updatedAt: new Date() })
-          .where(eq(jobs.id, job.id));
+          .set({ status: job.attempts >= MAX_ATTEMPTS ? 'failed' : 'queued', leaseToken: null, error: message, runAt: sql`now() + ${5_000 * job.attempts} * interval '1 millisecond'`, updatedAt: sql`now()` })
+          .where(ownsLease);
+      } finally {
+        clearInterval(heartbeat);
+        await renewing;
       }
       processed++;
     }

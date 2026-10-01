@@ -97,6 +97,7 @@ describe('auth and scope', () => {
   });
 });
 
+
 describe('Phase 0–2: intake → draft → approval', () => {
   it('blocks an intake containing the student\'s own name before anything is stored', async () => {
     const r = await post('teacher@test.school', '/api/intakes', { studentId: S.studentA, fields: EVAL_CASES.find((c) => c.id === '004')!.intake });
@@ -505,5 +506,27 @@ describe("the teacher's own class", () => {
     expect((await get('guardian@test.school', '/api/classroom')).status).toBe(403);
     expect((await get('student@test.school', '/api/classroom')).status).toBe(403);
     expect((await get('admin@test.school', '/api/classroom')).status).toBe(403);
+  });
+});
+
+describe('reviewed roster import', () => {
+  const rows = [{ externalId: 'import-1', firstName: 'Synthetic', lastName: 'Import', gradeLevel: '6' }];
+  it('previews without creating, confirms once, and safely retries', async () => {
+    const preview = await post('teacher@test.school', '/api/classroom/import/preview', { sectionId: S.sec, rows });
+    expect(preview.status).toBe(200);
+    expect(preview.body.rows[0].action).toBe('create');
+    expect(await app.ctx.db.select().from(students).where(eq(students.externalId, 'import-1'))).toHaveLength(0);
+    const body = { sectionId: S.sec, rows, confirmed: true };
+    expect((await post('teacher@test.school', '/api/classroom/import/confirm', body)).body.created).toBe(1);
+    expect((await post('teacher@test.school', '/api/classroom/import/confirm', body)).body.unchanged).toBe(1);
+    expect(await app.ctx.db.select().from(students).where(eq(students.externalId, 'import-1'))).toHaveLength(1);
+  });
+  it('requires confirmation and section scope, and blocks name-only duplicate identities', async () => {
+    expect((await post('teacher@test.school', '/api/classroom/import/confirm', { sectionId: S.sec, rows })).status).toBe(400);
+    expect((await post('teacher2@test.school', '/api/classroom/import/preview', { sectionId: S.sec, rows })).status).toBe(403);
+    const duplicate = [{ externalId: 'different-id', firstName: 'Marcus', lastName: 'Johnson', gradeLevel: '6' }];
+    const preview = await post('teacher@test.school', '/api/classroom/import/preview', { sectionId: S.sec, rows: duplicate });
+    expect(preview.body.canImport).toBe(false);
+    expect((await post('teacher@test.school', '/api/classroom/import/confirm', { sectionId: S.sec, rows: duplicate, confirmed: true })).status).toBe(400);
   });
 });

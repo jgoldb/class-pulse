@@ -7,6 +7,7 @@
  * It is NOT a substitute for the model in production: AI_PROVIDER=openai.
  */
 import type { IntakeFields, InterventionProposal, PlanContent, ReviewNarrative, Baseline, GoalContent, StrategyContent } from '@class-pulse/domain';
+import { classroomEvidenceText } from '@class-pulse/domain';
 import type { ModelProvider, StructuredRequest, StructuredResponse } from './provider';
 import type { PatternInterpretationPayload, ReviewNarrationPayload, ClassifierOutput, JudgeOutput, JudgePayload } from '../schema';
 import { CAUSAL_PHRASES, DIAGNOSTIC_TERMS, STIGMATIZING_TERMS, findTerms, strings } from '../guardrails/lexicon';
@@ -24,6 +25,21 @@ export class MockProvider implements ModelProvider {
     if (this.scenario === 'invalid_json') return wrap({ nonsense: true }, req);
     const input = JSON.parse(req.input) as Record<string, unknown>;
     switch (req.surface) {
+      case 'classroom_draft': {
+        const p = input as unknown as import('@class-pulse/domain').ArtifactPayload;
+        const first = p.evidence[0]!;
+        const common = { kind: p.kind, title: 'Classroom draft', sourceNumbers: [first.number] };
+        if (p.kind === 'abc' && first.observation.kind === 'behavior') return wrap({ ...common, antecedent: first.observation.antecedent, behavior: first.observation.action, consequence: first.observation.consequence, measuredCount: first.observation.measuredCount, limitations: 'One observation; missing context remains unrecorded.' }, req);
+        if (p.kind === 'positive_note') return wrap({ ...common, message: first.observation.kind === 'praise' ? first.observation.strength : 'Contributed to class discussion.' }, req);
+        if (p.kind === 'parent_message') return wrap({ ...common, message: 'A classroom observation is available for discussion.', invitationToRespond: 'What has helped with learning at home?' }, req);
+        const all = { ...common, sourceNumbers: p.evidence.map((e) => e.number) };
+        const observed = p.evidence.map((e) => classroomEvidenceText(e.observation));
+        const limitations = 'Limited classroom evidence. Proposed actions require educator review; missing information remains unrecorded.';
+        if (['sst_report', 'mtss_report', 'fba_observations'].includes(p.kind)) return wrap({ ...all, purpose: 'Evidence for educator discussion', observations: observed, questionsForTeam: ['What additional observations should the team collect?'], limitations }, req);
+        if (p.kind.startsWith('guide_')) return wrap({ ...all, evidenceSummary: observed, proposedNextStep: 'Offer a worked example, then ask the learner to explain one step. Record the response for review.', limitations }, req);
+        if (p.kind === 'small_group') return wrap({ ...all, objective: p.objective || 'Practise the recorded concept', instructions: ['Compare two worked examples, then explain the difference.'], checkForUnderstanding: 'Try one new example independently.', rationale: 'Temporary practice opportunity based on selected instructional observations.', limitations }, req);
+        return wrap({ ...common, objective: p.objective || 'Practise the lesson topic', instructions: ['Try one example and explain your thinking to a partner.'], checkForUnderstanding: 'Explain one step in your own words.', limitations: 'Suggested practice; observed evidence does not establish mastery.' }, req);
+      }
       case 'plan_generation':
         return wrap(mockPlan(input.intake as IntakeFields, this.scenario), req);
       case 'pattern_interpretation':

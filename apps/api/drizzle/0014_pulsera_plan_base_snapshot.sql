@@ -1,0 +1,1 @@
+ALTER TABLE "working"."classroom_plan_origins" ADD COLUMN "base_snapshot" jsonb;

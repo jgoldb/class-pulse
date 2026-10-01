@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { Check, Scale, ScrollText } from 'lucide-react';
 import { REVIEW_DECISIONS } from '@class-pulse/domain';
@@ -24,16 +24,18 @@ export function ReviewDecision() {
   const [decision, setDecision] = useState<string | null>(null);
   const [rationale, setRationale] = useState('');
   const decide = useMutation({
-    mutationFn: () => api.post(`/api/reviews/${id}/decide`, { decision, rationale: rationale || null }),
+    mutationFn: () => api.post(`/api/reviews/${id}/decide`, { decision, rationale: rationale || null, expectedEvidenceVersion: q.data?.evidenceVersion }),
     onSuccess: () => {
       toast.success(`Review decided: ${humanize(decision ?? '')}.`);
       qc.invalidateQueries();
       nav(`${base}/cases/${q.data!.caseKey}`);
     },
   });
+  const refresh = useMutation({ mutationFn: () => api.post(`/api/reviews/${id}/refresh`), onSuccess: () => { setDecision(null); qc.invalidateQueries({ queryKey: ['review', id] }); } });
   if (q.isLoading) return <PageSkeleton />;
   if (!q.data) return <Callout tone="danger">Review cycle not found.</Callout>;
   const r = q.data;
+  if (r.sourceInvalidatedAt) return <Card><CardBody className="space-y-3 pt-5"><h1 className="font-semibold">Review evidence changed</h1><p className="text-sm">A classroom source was corrected or withdrawn. The former recommendation and narrative are no longer current.</p>{r.status === 'open' && <Button loading={refresh.isPending} onClick={() => refresh.mutate()}>Refresh from current evidence</Button>}{refresh.error && <p role="alert">{refresh.error.message}</p>}<Link className="block text-sm text-primary underline" to={`${base}/cases/${r.caseKey}`}>Return to support plan</Link></CardBody></Card>;
   const c = r.computed;
   const n = r.narrative;
   const err = decide.error as ApiError | null;

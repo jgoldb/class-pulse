@@ -7,6 +7,7 @@ import type { PlanContent } from '@class-pulse/domain';
 import { PageHeader } from '../../components/AppShell';
 import { Avatar, Badge, Button, Callout, Card, CardBody, CardHeader, Empty, ObsCount, PageSkeleton, Tabs, TabsContent, TabsList } from '../../components/ui';
 import { FamilyAccess } from '../../components/FamilyAccess';
+import { PlanSourceReview } from '../../components/PlanRevisionForm';
 import { api, fmtDate, fmtDateTime, humanize } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import type { CaseView, Draft } from '../../lib/types';
@@ -83,6 +84,7 @@ export function CaseDetail() {
         }
       />
 
+      {v.planId && v.plan_provenance?.sourceReviewNeeded && v.plan_provenance.updatedAt && <PlanSourceReview planId={v.planId} updatedAt={v.plan_provenance.updatedAt} />}
       {openFlags.length > 0 && (
         <Callout tone="danger" icon={<AlertTriangle />} title="Safety concern flagged" className="mb-4">
           {openFlags.map((f) => (

@@ -21,6 +21,7 @@ export interface ModelResolution {
 }
 
 export interface EgressLogEntry {
+  retentionClass?: 'classroom_pending';
   runId: string;
   surface: AiSurface;
   caseKey: string | null;
@@ -49,6 +50,7 @@ export interface EgressGateOptions {
 }
 
 export interface EgressCall<TPayload, TOut> {
+  retentionClass?: 'classroom_pending';
   surface: AiSurface;
   promptVersion: Pick<PromptVersion, 'id' | 'body' | 'model' | 'params' | 'version'>;
   payloadSchema: z.ZodType<TPayload>;
@@ -100,6 +102,7 @@ export class EgressGate {
       usage: null,
     };
     const base = {
+      retentionClass: c.retentionClass,
       runId,
       surface: c.surface,
       caseKey: c.caseKey ?? null,

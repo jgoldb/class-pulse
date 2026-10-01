@@ -6,7 +6,7 @@ import { AlertTriangle, Check, CheckCheck, Pencil, RotateCcw, ShieldCheck, Trash
 import { PLAN_SECTIONS, type PlanContent } from '@class-pulse/domain';
 import { PageHeader } from '../../components/AppShell';
 import { Badge, Button, Callout, Card, CardBody, PageSkeleton, ProgressBar, Textarea, cn, motion } from '../../components/ui';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, api, humanize } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import type { Draft } from '../../lib/types';
 import { SectionBody } from '../../components/PlanSections';
@@ -48,7 +48,7 @@ export function DraftReview() {
 
   const decided = useMemo(() => PLAN_SECTIONS.filter((s) => decisions[s.key]).length, [decisions]);
   if (draft.isLoading) return <PageSkeleton />;
-  if (!draft.data) return <Callout tone="danger">Draft not found.</Callout>;
+  if (!draft.data) return <Callout tone="danger">{draft.error?.message ?? 'Draft not found.'}</Callout>;
   const d = draft.data;
   const canApprove = me?.approverRoles?.some((r) => me.roles?.includes(r));
 
@@ -146,6 +146,7 @@ export function DraftReview() {
         }
       />
 
+      {d.classroomOrigin && <Card className="mb-4"><CardBody className="space-y-3 pt-5"><h2 className="font-semibold">Educator-proposed revision from classroom history</h2><p className="text-sm">Changed sections: {Object.keys(d.classroomOrigin.changedSections).map(humanize).join(', ')}. Existing measures and baseline requirements remain in force.</p><details><summary className="cursor-pointer text-sm">Whose input informed this revision</summary>{d.classroomOrigin.evidence.map((s, i) => <div key={i} className="mt-2 rounded border border-border p-3 text-sm"><strong>{s.reportedBy === 'guardian' ? 'Family report' : s.reportedBy === 'student' ? 'Student report' : 'Teacher observation'} · version {s.revision}</strong><dl>{Object.entries(s.content).filter(([k]) => !['strategyId', 'kind'].includes(k)).map(([k, v]) => <div key={k}><dt className="inline font-medium">{humanize(k)}: </dt><dd className="inline">{v === null || v === '' ? 'Not recorded' : String(v)}</dd></div>)}</dl></div>)}</details></CardBody></Card>}
       {rejectFindings.length > 0 && (
         <Callout tone="danger" title="Guardrail rejections (the model regenerated once and still failed)" className="mb-4">
           <ul className="list-disc pl-4">

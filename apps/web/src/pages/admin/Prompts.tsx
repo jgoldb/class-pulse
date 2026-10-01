@@ -33,7 +33,7 @@ export function AdminPrompts() {
   if (q.isLoading) return <PageSkeleton />;
   return (
     <div>
-      <PageHeader title="Prompts & evals" description="Prompts are immutable, versioned application code. A plan-generation version cannot become active without a recorded passing eval run on the real model. A full run takes about 17 minutes." />
+      <PageHeader title="Prompts & evals" description="Prompts are immutable and versioned. Plan and classroom drafts require a recorded passing evaluation before promotion. Runs use the configured model and may take several minutes." />
       {perr && <Callout tone="danger" className="mb-4">{perr.message}{perr.details ? ` — ${JSON.stringify(perr.details)}` : ''}</Callout>}
       {result && (
         <Callout tone={result.passed ? 'success' : 'danger'} title={`Eval run: ${result.passedCases}/${result.totalCases} cases passed`} className="mb-4">
@@ -68,7 +68,7 @@ export function AdminPrompts() {
                     <td className="pr-3 text-xs">{p.latestEval ? <Badge tone={p.latestEval.passed ? 'success' : 'danger'}>{p.latestEval.passedCases}/{p.latestEval.totalCases} · {p.latestEval.model}</Badge> : '—'}</td>
                     <td className="max-w-md pr-3 text-xs text-muted">{p.changelog}</td>
                     <td className="whitespace-nowrap text-right">
-                      {p.surface === 'plan_generation' && (
+                      {['plan_generation', 'classroom_draft'].includes(p.surface) && (
                         <Button size="sm" variant="secondary" loading={runEvals.isPending && runEvals.variables === p.id} disabled={runEvals.isPending} onClick={() => runEvals.mutate(p.id)}>
                           <FlaskConical /> Run evals
                         </Button>
@@ -111,7 +111,7 @@ export function AdminPrompts() {
           <CardBody className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Surface">
-                <Select value={form.surface} onChange={(v) => setForm({ ...form, surface: v })} options={['plan_generation', 'pattern_interpretation', 'review_narration', 'guardrail_classifier', 'eval_judge'].map((s) => ({ value: s, label: s }))} />
+                <Select value={form.surface} onChange={(v) => setForm({ ...form, surface: v })} options={['plan_generation', 'classroom_draft', 'pattern_interpretation', 'review_narration', 'guardrail_classifier', 'eval_judge'].map((s) => ({ value: s, label: s }))} />
               </Field>
               <Field label="Model" hint='"default" = from environment'>
                 <Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />

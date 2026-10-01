@@ -20,7 +20,7 @@ export function Landing() {
             <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
               <Activity className="size-4" />
             </span>
-            <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>
+            <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
           </div>
           <div className="flex items-center gap-2">
             <Link to="/sign-in">
@@ -101,7 +101,7 @@ export function Landing() {
             </ol>
           </div>
           <div className="rounded-lg border border-border bg-bg p-5 text-sm text-muted shadow-sm">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-subtle">What Class Pulse will never do</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-subtle">What Pulsera will never do</div>
             <ul className="mt-2 list-disc space-y-1 pl-5">
               <li>Diagnose, or infer a disability, condition, or family circumstance</li>
               <li>Recommend discipline or placement</li>
@@ -111,7 +111,7 @@ export function Landing() {
           </div>
         </div>
       </section>
-      <footer className="mx-auto max-w-6xl px-4 py-8 text-xs text-subtle sm:px-6">Class Pulse · A role-scoped behavior-support planner with a deterministic pattern engine.</footer>
+      <footer className="mx-auto max-w-6xl px-4 py-8 text-xs text-subtle sm:px-6">Pulsera · A role-scoped behavior-support planner with a deterministic pattern engine.</footer>
     </div>
   );
 }

@@ -80,6 +80,88 @@ describe('InProcessQueue claiming', () => {
 });
 
 describe('InProcessQueue recovery', () => {
+  it('renews a running job so a second worker cannot reclaim it', async () => {
+    const a = new InProcessQueue(handle.db, 60_000, 20);
+    const b = queue();
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const begun = new Promise<void>((resolve) => { started = resolve; });
+    await a.start(async () => { started(); await held; });
+    const id = await a.enqueue('sweep_all', {});
+    const draining = a.drain();
+    await begun;
+    try {
+      await handle.db.update(jobs).set({ updatedAt: minutesAgo(30) }).where(eq(jobs.id, id));
+      await expect.poll(async () => (await statusOf(id))!.updatedAt.getTime()).toBeGreaterThan(minutesAgo(1).getTime());
+      let duplicateRuns = 0;
+      await b.start(async () => { duplicateRuns++; });
+      await b.drain();
+      expect(duplicateRuns).toBe(0);
+      expect((await statusOf(id))?.status).toBe('running');
+    } finally {
+      release();
+      await draining;
+      await a.stop();
+      await b.stop();
+    }
+    expect((await statusOf(id))?.status).toBe('done');
+    expect((await statusOf(id))?.leaseToken).toBeNull();
+  });
+
+  it.each([false, true])('an old worker cannot overwrite re-enqueued work (failure=%s)', async (fail) => {
+    const q = queue();
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const begun = new Promise<void>((resolve) => { started = resolve; });
+    await q.start(async () => { started(); await held; if (fail) throw new Error('old attempt failed'); });
+    const id = await q.enqueue('sweep_case', { version: 1 }, { dedupeKey: 'same-case' });
+    const draining = q.drain();
+    await begun;
+    try {
+      // Delayed replacement prevents this drain from processing the new generation itself.
+      await q.enqueue('sweep_case', { version: 2 }, { dedupeKey: 'same-case', delayMs: 60_000 });
+    } finally {
+      release();
+      await draining;
+      await q.stop();
+    }
+    const row = await statusOf(id);
+    expect(row).toMatchObject({ status: 'queued', attempts: 0, leaseToken: null, error: null, payload: { version: 2 } });
+  });
+
+  it('fences a previous owner after an expired lease is reclaimed and claimed again', async () => {
+    const a = queue(), b = queue();
+    let releaseA!: () => void, releaseB!: () => void, startA!: () => void, startB!: () => void;
+    const heldA = new Promise<void>((resolve) => { releaseA = resolve; });
+    const heldB = new Promise<void>((resolve) => { releaseB = resolve; });
+    const begunA = new Promise<void>((resolve) => { startA = resolve; });
+    const begunB = new Promise<void>((resolve) => { startB = resolve; });
+    await a.start(async () => { startA(); await heldA; });
+    const id = await a.enqueue('sweep_all', {});
+    const drainA = a.drain();
+    let drainB: Promise<number> | null = null;
+    await begunA;
+    try {
+      const oldToken = (await statusOf(id))!.leaseToken;
+      await handle.db.update(jobs).set({ updatedAt: minutesAgo(30) }).where(eq(jobs.id, id));
+      await b.start(async () => { startB(); await heldB; });
+      drainB = b.drain();
+      await begunB;
+      const newToken = (await statusOf(id))!.leaseToken;
+      expect(newToken).not.toBe(oldToken);
+      releaseA();
+      await drainA;
+      expect(await statusOf(id)).toMatchObject({ status: 'running', attempts: 2, leaseToken: newToken });
+    } finally {
+      releaseA(); releaseB();
+      await Promise.all([drainA, drainB]);
+      await a.stop(); await b.stop();
+    }
+    expect((await statusOf(id))?.status).toBe('done');
+  });
+
   it('leaves another live worker\'s in-flight job alone on startup', async () => {
     // The bug this replaced reset every 'running' row at boot, so starting a second process
     // re-queued work the first one was still doing.

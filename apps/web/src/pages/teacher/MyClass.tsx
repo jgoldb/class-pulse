@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { BookOpen, CircleUserRound, HeartHandshake, Plus, School, UserPlus, Users } from 'lucide-react';
 import { PageHeader } from '../../components/AppShell';
 import { FamilyAccess } from '../../components/FamilyAccess';
+import { RosterImport } from '../../components/RosterImport';
 import { Avatar, Badge, Button, Callout, Card, CardBody, CardHeader, Dialog, DialogContent, Empty, FadeIn, Field, Input, PageSkeleton, Select, Stagger, StaggerItem } from '../../components/ui';
 import { ApiError, api, humanize } from '../../lib/api';
 import type { Classroom } from '../../lib/types';
@@ -20,6 +21,7 @@ export function MyClass() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['classroom'], queryFn: () => api.get<Classroom>('/api/classroom') });
   const [addSection, setAddSection] = useState(false);
+  const [importTo, setImportTo] = useState<string | null>(null);
   const [section, setSection] = useState({ name: '', gradeLevel: '6', periodTag: 'period_1' });
   const [addTo, setAddTo] = useState<string | null>(null);
   const [student, setStudent] = useState({ firstName: '', lastName: '', gradeLevel: '' });
@@ -88,9 +90,12 @@ export function MyClass() {
                     title={sec.name}
                     description={`Grade ${sec.gradeLevel}${sec.periodTag ? ` · ${humanize(sec.periodTag)}` : ''} · ${roster.length} student${roster.length === 1 ? '' : 's'}`}
                     action={
+                      <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => setImportTo(sec.id)}>Import CSV</Button>
                       <Button size="sm" variant="secondary" onClick={() => setAddTo(sec.id)} data-testid={`add-student-${sec.id}`}>
                         <UserPlus /> Add a student
                       </Button>
+                      </div>
                     }
                   />
                   <CardBody>
@@ -173,6 +178,12 @@ export function MyClass() {
             Add section
           </Button>
         </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!importTo} onOpenChange={(open) => !open && setImportTo(null)}>
+        <DialogContent title="Import roster" description="Review the proposed changes before confirming.">
+          {importTo && <RosterImport key={importTo} sectionId={importTo} onImported={refresh} />}
         </DialogContent>
       </Dialog>
 

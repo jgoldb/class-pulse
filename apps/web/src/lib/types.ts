@@ -30,6 +30,7 @@ export interface Draft {
   error: string | null;
   piiSpans: Array<{ kind: string; text: string; hint: string }> | null;
   createdAt: string;
+  classroomOrigin?: { basePlanId: string; changedSections: Record<string, unknown>; evidence: Array<{ kind: string; revision: number; reportedBy: string; content: Record<string, unknown> }> } | null;
 }
 
 export interface ProgressSeries {
@@ -94,7 +95,7 @@ export interface CaseView {
   intake_fields?: { version: number; fields: Record<string, string>; createdAt: string } | null;
   planId?: string;
   plan_status?: string;
-  plan_provenance?: { aiDrafted: boolean; promptVersionId: string | null; approvedBy: string | null; approvedAt: string | null; version: number; transitions?: unknown[] };
+  plan_provenance?: { aiDrafted: boolean; promptVersionId: string | null; approvedBy: string | null; approvedAt: string | null; version: number; transitions?: unknown[]; sourceReviewNeeded?: boolean; updatedAt?: string };
   plan_draftDiff?: { entries: unknown[]; bySection: Record<string, { changed: number; added: number; removed: number }> } | null;
   goals?: GoalView[];
   strategies?: StrategyView[];
@@ -137,6 +138,8 @@ export interface Candidate {
 }
 
 export interface ReviewCycleFull {
+  sourceInvalidatedAt?: string | null;
+  evidenceVersion?: number;
   id: string;
   planId: string;
   caseKey: string;

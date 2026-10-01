@@ -21,12 +21,11 @@ interface NavItem {
 
 const NAV: Record<Surface, NavItem[]> = {
   teacher: [
-    { to: '/teacher', label: 'Today', icon: Home, end: true },
-    { to: '/teacher/cases', label: 'Cases', icon: BookOpen },
-    { to: '/teacher/class', label: 'My class', icon: Users, short: 'Class' },
-    { to: '/teacher/patterns', label: 'Patterns', icon: Sparkles, badgeKey: 'patterns' },
-    { to: '/teacher/reviews', label: 'Reviews', icon: ClipboardList, badgeKey: 'reviews' },
-    { to: '/teacher/requests', label: 'Family requests', icon: Inbox, badgeKey: 'requests' },
+    { to: '/teacher', label: 'Class Pulse', short: 'Pulse', icon: Home, end: true },
+    { to: '/teacher/students', label: 'Students', icon: Users },
+    { to: '/teacher/drafts', label: 'Drafts', icon: Inbox },
+    { to: '/teacher/tomorrow', label: 'Tomorrow', icon: Sparkles },
+    { to: '/teacher/support', label: 'Support', icon: BookOpen },
   ],
   support: [
     { to: '/support', label: 'My students', icon: Users, end: true },
@@ -84,7 +83,7 @@ function Brand({ compact }: { compact?: boolean }) {
       <span className="relative inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
         <Activity className="size-4" />
       </span>
-      {!compact && <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>}
+      {!compact && <span className="text-[15px] font-bold tracking-tight">Pulsera</span>}
     </div>
   );
 }

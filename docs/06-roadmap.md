@@ -1,5 +1,9 @@
 # 06 — Roadmap
 
+This is the original behavior-support roadmap. See [09 - Pulsera implementation
+plan](09-pulsera-implementation-plan.md) for the proposed next phases, classroom workflow,
+migration strategy, and release gates.
+
 Ordering principle: get the core loop demonstrably useful before adding roles, and build the
 evaluation and privacy scaffolding early — both are cheap now and expensive to retrofit.
 

@@ -33,7 +33,7 @@ for (const s of SCREENS) {
   test(`screen ${s.name}`, async ({ page, signInAs }, info) => {
     if (s.as) await signInAs(s.as);
     await page.goto(s.path);
-    await expect(page.getByText(s.expectText).first()).toBeVisible();
+    await expect(page.getByText(s.expectText).filter({ visible: true }).first()).toBeVisible();
     await page.waitForTimeout(600); // let enter animations settle
     const dir = `e2e/screenshots/${info.project.name}`;
     mkdirSync(dir, { recursive: true });

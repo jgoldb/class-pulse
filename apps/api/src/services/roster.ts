@@ -3,7 +3,7 @@ import { newCaseKey, newId, roleScopeIsValid } from '@class-pulse/domain';
 import type { Actor } from '../context';
 import { badRequest, forbidden, notFound } from '../context';
 import type { Db } from '../db/client';
-import { authorizationRecords, caseLinks, cases, classSections, organizations, schools, sectionEnrollments, students, users } from '../db/schema';
+import { authorizationRecords, caseLinks, cases, classSections, learnerLinks, organizations, schools, sectionEnrollments, students, users } from '../db/schema';
 import { audit } from './audit';
 
 /**
@@ -109,7 +109,8 @@ export async function openCaseForStudent(db: Db, actor: Actor, studentId: string
   if (!role) throw forbidden('Only a teacher of the student\'s section or an assigned support professional can open a case');
   const caseKey = newCaseKey();
   await db.transaction(async (tx) => {
-    await tx.insert(cases).values({ caseKey, gradeLevel: s.gradeLevel, sectionId: section.sectionId, schoolId: s.schoolId, status: 'open' });
+    const [learner] = await tx.select().from(learnerLinks).where(eq(learnerLinks.studentId, studentId));
+    await tx.insert(cases).values({ caseKey, learnerKey: learner?.learnerKey ?? null, gradeLevel: s.gradeLevel, sectionId: section.sectionId, schoolId: s.schoolId, status: 'open' });
     await tx.insert(caseLinks).values({ caseKey, studentId, createdBy: actor.userId });
   });
   // The actor's scope was resolved before this case existed; extend it for the rest of the request.

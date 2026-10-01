@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AI_SURFACES = ['plan_generation', 'pattern_interpretation', 'review_narration', 'guardrail_classifier', 'eval_judge'] as const;
+export const AI_SURFACES = ['plan_generation', 'pattern_interpretation', 'review_narration', 'guardrail_classifier', 'eval_judge', 'classroom_draft'] as const;
 export const AiSurface = z.enum(AI_SURFACES);
 export type AiSurface = z.infer<typeof AiSurface>;
 

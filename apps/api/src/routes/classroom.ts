@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { RosterImportRows } from '@class-pulse/domain';
+import { confirmRosterImport, previewRosterImport } from '../services/roster-import';
 import type { AppContext } from '../context';
 import { forbidden } from '../context';
 import { accessFor, assertResponsibleFor, classroomFor, createSection, createStudent, enrollStudent } from '../services/classroom';
@@ -22,6 +24,15 @@ export function registerClassroomRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.get('/api/classroom', async (req) => classroomFor(ctx, req.actor!));
+
+  app.post('/api/classroom/import/preview', async (req) => {
+    const body = z.object({ sectionId: z.string(), rows: RosterImportRows }).strict().parse(req.body);
+    return previewRosterImport(ctx, req.actor!, body.sectionId, body.rows);
+  });
+  app.post('/api/classroom/import/confirm', async (req) => {
+    const body = z.object({ sectionId: z.string(), rows: RosterImportRows, confirmed: z.literal(true) }).strict().parse(req.body);
+    return confirmRosterImport(ctx, req.actor!, body.sectionId, body.rows);
+  });
 
   app.post('/api/classroom/sections', async (req) => {
     const body = z

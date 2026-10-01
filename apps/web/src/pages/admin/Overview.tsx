@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/AppShell';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Empty, PageSkeleton, Stagger, StaggerItem, Stat } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { PulseInsights } from '../../components/PulseInsights';
 
 interface Cells {
   cells: Array<{ key: string; count: number | null; suppressed: boolean; reason: string | null }>;
@@ -81,9 +82,10 @@ export function AdminOverview() {
         <CellChart title="Review decisions" data={t.reviewDecisions} />
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <Stat label="Intervention effectiveness" value={t.interventionEffectiveness.improvingShare ?? '—'} hint={t.interventionEffectiveness.decidedCycles === null ? 'below minimum cell size' : `${t.interventionEffectiveness.decidedCycles} decided review cycles with an improving goal`} />
+        <Stat label="Observed improvement during interventions" value={t.interventionEffectiveness.improvingShare ?? '—'} hint={t.interventionEffectiveness.decidedCycles === null ? 'below minimum cell size' : `${t.interventionEffectiveness.decidedCycles} decided review cycles; association does not establish causation`} />
         <Stat label="Median generation latency" value={t.generation.medianLatencyMs !== null ? `${(t.generation.medianLatencyMs / 1000).toFixed(1)}s` : '—'} hint="per model call, including the second-model check" />
       </div>
+      <PulseInsights />
       <Card className="mt-4">
         <CardHeader title="Where to go next" />
         <CardBody className="grid gap-2 text-sm sm:grid-cols-2">

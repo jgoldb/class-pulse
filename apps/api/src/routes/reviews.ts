@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppContext } from '../context';
-import { notFound } from '../context';
+import { conflict, notFound } from '../context';
 import { reviewCycles } from '../db/schema';
 import { requireTeacherLike } from '../services/cases';
-import { decideReview } from '../services/reviews';
+import { decideReview, openReview } from '../services/reviews';
 
 const Id = z.object({ id: z.string() });
 
@@ -16,19 +16,28 @@ export function registerReviewRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!keys.length) return [];
     const rows = await ctx.db.select().from(reviewCycles).where(inArray(reviewCycles.caseKey, keys)).orderBy(reviewCycles.dueAt);
     const soon = ctx.now().getTime() + 7 * 86_400_000;
-    return rows.filter((r) => r.status === 'open' || (r.status === 'scheduled' && r.dueAt.getTime() <= soon)).map((r) => ({ id: r.id, caseKey: r.caseKey, planId: r.planId, dueAt: r.dueAt, status: r.status, narrativeStatus: r.narrativeStatus, computedDecision: (r.computed as { decision?: string } | null)?.decision ?? null }));
+    return rows.filter((r) => r.status === 'open' || (r.status === 'scheduled' && r.dueAt.getTime() <= soon)).map((r) => ({ id: r.id, caseKey: r.caseKey, planId: r.planId, dueAt: r.dueAt, status: r.status, narrativeStatus: r.narrativeStatus, sourceReviewNeeded: !!r.sourceInvalidatedAt, computedDecision: r.sourceInvalidatedAt ? null : (r.computed as { decision?: string } | null)?.decision ?? null }));
   });
 
   app.get('/api/reviews/:id', async (req) => {
     const [row] = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.id, Id.parse(req.params).id)).limit(1);
     if (!row) throw notFound('Review cycle not found');
     requireTeacherLike(req.actor!, row.caseKey);
-    return row;
+    return row.sourceInvalidatedAt ? { ...row, narrative: null, computed: null } : row;
+  });
+
+  app.post('/api/reviews/:id/refresh', async (req) => {
+    const [row] = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.id, Id.parse(req.params).id));
+    if (!row) throw notFound('Review cycle not found');
+    requireTeacherLike(req.actor!, row.caseKey);
+    if (row.status !== 'open' || !row.sourceInvalidatedAt) throw conflict('Only an open review with changed sources can be refreshed');
+    await openReview(ctx, row.id);
+    return { ok: true };
   });
 
   app.post('/api/reviews/:id/decide', async (req) => {
     const { id } = Id.parse(req.params);
-    const body = z.object({ decision: z.string(), rationale: z.string().max(2000).nullable().optional() }).parse(req.body);
-    return decideReview(ctx, req.actor!, id, { decision: body.decision, rationale: body.rationale ?? null });
+    const body = z.object({ decision: z.string(), rationale: z.string().max(2000).nullable().optional(), expectedEvidenceVersion: z.number().int().positive().optional() }).parse(req.body);
+    return decideReview(ctx, req.actor!, id, { decision: body.decision, rationale: body.rationale ?? null, expectedEvidenceVersion: body.expectedEvidenceVersion });
   });
 }

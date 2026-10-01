@@ -1,7 +1,7 @@
 import { EgressGate, aiConfigFromEnv, modelResolverFromConfig, providerFromEnv, type AiConfig, type EgressLogEntry, type ModelProvider, type RunMeta } from '@class-pulse/ai';
 import { newId, type AiSurface, type GenerationStatus } from '@class-pulse/domain';
 import type { Db } from '../db/client';
-import { egressLog, generationRuns } from '../db/schema';
+import { classroomEgressPayloads, egressLog, generationRuns } from '../db/schema';
 
 /**
  * Wire the egress gate to the working plane: every call writes an egress_log row (exact payload,
@@ -16,7 +16,10 @@ export function buildGate(db: Db, env: NodeJS.ProcessEnv = process.env): { gate:
     posture: aiConfig.posture,
     newRunId: () => newId(),
     writeLog: async (e: EgressLogEntry) => {
-      await db.insert(egressLog).values({
+      const pending = e.retentionClass === 'classroom_pending';
+      await db.transaction(async (tx) => {
+      if (pending && e.status !== 'blocked_pii') await tx.insert(classroomEgressPayloads).values({ runId: e.runId, input: e.input, expiresAt: new Date(e.at.getTime() + 30 * 86400000) }).onConflictDoNothing();
+      await tx.insert(egressLog).values({
         id: newId(),
         runId: e.runId,
         surface: e.surface,
@@ -25,15 +28,16 @@ export function buildGate(db: Db, env: NodeJS.ProcessEnv = process.env): { gate:
         model: e.model,
         provider: e.provider,
         instructions: e.instructions,
-        input: e.input,
+        input: pending ? '[restricted classroom payload; see expiring payload by run ID]' : e.input,
         inputHash: e.inputHash,
         status: e.status,
         latencyMs: e.latencyMs,
         usage: e.usage,
         posture: e.posture,
-        piiWarnings: e.piiWarnings,
-        error: e.error,
+        piiWarnings: pending ? e.piiWarnings.map((s) => ({ kind: s.kind, confidence: s.confidence })) : e.piiWarnings,
+        error: pending && e.error ? 'Classroom model call failed; inspect status and metadata' : e.error,
         at: e.at,
+      });
       });
     },
   });

@@ -11,7 +11,7 @@
 | Backend | TypeScript — Fastify or NestJS | Shared types and Zod schemas across the wire |
 | Database | Postgres | Row-level security; JSONB for structured plan and pattern payloads |
 | ORM | Drizzle (or Prisma) | Drizzle keeps RLS and raw SQL accessible |
-| Jobs | BullMQ + Redis | Generation calls and the nightly pattern sweep |
+| Jobs | Durable Postgres queue polled by the API | Generation and sweeps; renewable leases and ownership tokens protect job state |
 | Auth | Clerk / Auth0 / Entra ID | SAML and Google Workspace matter for school adoption |
 | AI | Claude API, server-side only | `claude-opus-5` for plan generation and pattern interpretation; `claude-haiku-4-5` for guardrail classification |
 

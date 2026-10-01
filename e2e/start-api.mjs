@@ -12,7 +12,7 @@ if (env.E2E_SKIP_SEED === '1') {
 } else {
   console.log('[e2e] resetting and seeding the e2e branch (this calls the model; ~2–3 minutes)…');
   const t0 = Date.now();
-  const r = spawnSync('npx', ['tsx', 'src/seed.ts', '--reset'], { cwd: resolve('apps/api'), env, stdio: 'inherit', shell: true });
+  const r = spawnSync(process.execPath, ['--import', 'tsx', 'src/seed.ts', '--reset'], { cwd: resolve('apps/api'), env, stdio: 'inherit' });
   if (r.status !== 0) {
     console.error(`[e2e] seed failed with exit ${r.status}`);
     process.exit(r.status ?? 1);
@@ -20,6 +20,6 @@ if (env.E2E_SKIP_SEED === '1') {
   console.log(`[e2e] seeded in ${Math.round((Date.now() - t0) / 1000)}s`);
 }
 
-const api = spawn('npx', ['tsx', 'src/index.ts'], { cwd: resolve('apps/api'), env, stdio: 'inherit', shell: true });
+const api = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], { cwd: resolve('apps/api'), env, stdio: 'inherit' });
 api.on('exit', (code) => process.exit(code ?? 0));
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => api.kill());

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import {
   GoalContent,
   PlanContent,
@@ -16,9 +16,10 @@ import { checkEditedPlan } from '@class-pulse/ai';
 import { canApprovePlan } from '@class-pulse/policy';
 import type { Actor, AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../context';
-import { goals, planDrafts, plans, reviewCycles, strategies } from '../db/schema';
+import { cases, classSections, classroomPlanOrigins, goals, planDrafts, plans, reviewCycles, strategies } from '../db/schema';
 import { audit } from './audit';
 import { requireTeacherLike, roleForCase } from './cases';
+import { planRevisionOrigin } from './classroom-plan-revisions';
 
 const STRATEGY_SECTIONS: Array<[keyof PlanContent, StrategyKind]> = [
   ['preventiveStrategies', 'preventive'],
@@ -31,12 +32,15 @@ export async function getDraft(ctx: AppContext, actor: Actor, draftId: string) {
   const [d] = await ctx.db.select().from(planDrafts).where(eq(planDrafts.id, draftId)).limit(1);
   if (!d) throw notFound('Draft not found');
   requireTeacherLike(actor, d.caseKey);
-  return d;
+  const origin = await planRevisionOrigin(ctx, actor, draftId, !['approved', 'discarded'].includes(d.status));
+  return { ...d, classroomOrigin: origin };
 }
 
 export async function listDrafts(ctx: AppContext, actor: Actor, caseKey: string) {
   requireTeacherLike(actor, caseKey);
-  return ctx.db.select().from(planDrafts).where(eq(planDrafts.caseKey, caseKey)).orderBy(desc(planDrafts.createdAt));
+  const rows = await ctx.db.select().from(planDrafts).where(eq(planDrafts.caseKey, caseKey)).orderBy(desc(planDrafts.createdAt));
+  const origins = rows.length ? await ctx.db.select().from(classroomPlanOrigins).where(inArray(classroomPlanOrigins.draftId, rows.map((r) => r.id))) : [];
+  return rows.filter((r) => { const origin = origins.find((o) => o.draftId === r.id); return !origin || (origin.createdBy === actor.userId && actor.scope.teacherSectionIds.has(origin.sectionId)); }).map((r) => origins.some((o) => o.draftId === r.id) ? { ...r, content: null, guardrails: null, error: null } : r);
 }
 
 /**
@@ -49,7 +53,7 @@ export async function approveDraft(ctx: AppContext, actor: Actor, draftId: strin
   const draft = await getDraft(ctx, actor, draftId);
   const role = roleForCase(actor, draft.caseKey);
   if (!canApprovePlan(role, ctx.config.planApproverRoles)) throw forbidden(`Role ${role} may not approve plans (PLAN_APPROVER_ROLES)`);
-  if (!['ready', 'needs_attention'].includes(draft.status)) throw conflict(`Draft is ${draft.status}; only ready or needs_attention drafts can be approved`);
+  if (!['ready', 'needs_attention', 'approved'].includes(draft.status)) throw conflict(`Draft is ${draft.status}; only ready or needs_attention drafts can be approved`);
   if (!draft.content) throw conflict('Draft has no content');
   const content = PlanContent.parse(edited);
   const guardrails = checkEditedPlan(content);
@@ -58,15 +62,25 @@ export async function approveDraft(ctx: AppContext, actor: Actor, draftId: strin
     throw badRequest('This draft carries a safety concern. Confirm in the rationale that school safety procedures have been followed.');
   }
 
-  const diff = diffPlans(draft.content, content);
-  const [existing] = await ctx.db.select().from(plans).where(and(eq(plans.caseKey, draft.caseKey), eq(plans.status, 'active'))).limit(1);
-  const planId = newId();
   const now = ctx.now();
   const transitions: PlanTransitionRecord[] = [
     { from: 'draft', to: 'in_review', actorUserId: actor.userId, at: now, rationale: null },
     { from: 'in_review', to: 'active', actorUserId: actor.userId, at: now, rationale },
   ];
-  await ctx.db.transaction(async (tx) => {
+  const planId = await ctx.db.transaction(async (tx) => {
+    if (draft.classroomOrigin) await tx.select().from(classSections).where(eq(classSections.id, draft.classroomOrigin.sectionId)).for('update');
+    await tx.select().from(cases).where(eq(cases.caseKey, draft.caseKey)).for('update');
+    const current = await getDraft({ ...ctx, db: tx }, actor, draftId);
+    if (current.status === 'approved') {
+      const [published] = await tx.select().from(plans).where(eq(plans.draftId, draftId));
+      if (!published || published.sourceReviewNeeded || JSON.stringify(PlanContent.parse(published.content)) !== JSON.stringify(content)) throw conflict('This draft was already approved with different content or its sources changed');
+      return published.id;
+    }
+    if (!['ready', 'needs_attention'].includes(current.status)) throw conflict('Draft changed before approval');
+    const [existing] = await tx.select().from(plans).where(and(eq(plans.caseKey, draft.caseKey), eq(plans.status, 'active'))).limit(1);
+    if (current.classroomOrigin && existing?.id !== current.classroomOrigin.basePlanId) throw conflict('Base plan changed. Prepare a new revision');
+    const diff = diffPlans(current.classroomOrigin?.baseContent ?? draft.content, content);
+    const planId = newId();
     if (existing) {
       await tx.update(plans).set({ status: 'modified', updatedAt: now, transitions: [...(existing.transitions as PlanTransitionRecord[]), { from: existing.status as PlanStatus, to: 'modified', actorUserId: actor.userId, at: now, rationale: 'Superseded by a new approved plan' }] }).where(eq(plans.id, existing.id));
       await tx.update(goals).set({ status: 'modified' }).where(and(eq(goals.planId, existing.id), eq(goals.status, 'active')));
@@ -104,8 +118,9 @@ export async function approveDraft(ctx: AppContext, actor: Actor, draftId: strin
     const reviewDays = Math.min(...content.measurableGoals.map((g) => g.reviewPeriodDays), 30);
     await tx.insert(reviewCycles).values({ id: newId(), planId, caseKey: draft.caseKey, dueAt: new Date(now.getTime() + reviewDays * 86_400_000), status: 'scheduled' });
     await tx.update(planDrafts).set({ status: 'approved', updatedAt: now }).where(eq(planDrafts.id, draftId));
+    await audit(tx, { actorUserId: actor.userId, actorRole: role, action: 'plan.approve', targetType: 'plan', targetId: planId, caseKey: draft.caseKey, metadata: { draftId, diffSections: summarizeDiffBySection(diff), rationale } });
+    return planId;
   });
-  await audit(ctx.db, { actorUserId: actor.userId, actorRole: role, action: 'plan.approve', targetType: 'plan', targetId: planId, caseKey: draft.caseKey, metadata: { draftId, diffSections: summarizeDiffBySection(diff), rationale } });
   // The plan's own strengths section enters the live loop immediately (strength-underutilization).
   await ctx.queue.enqueue('sweep_case', { caseKey: draft.caseKey }, { dedupeKey: draft.caseKey });
   return { planId };
@@ -115,6 +130,21 @@ export async function discardDraft(ctx: AppContext, actor: Actor, draftId: strin
   const draft = await getDraft(ctx, actor, draftId);
   await ctx.db.update(planDrafts).set({ status: 'discarded', updatedAt: ctx.now() }).where(eq(planDrafts.id, draftId));
   await audit(ctx.db, { actorUserId: actor.userId, actorRole: roleForCase(actor, draft.caseKey), action: 'plan.transition', targetType: 'plan_draft', targetId: draftId, caseKey: draft.caseKey, metadata: { to: 'discarded' } });
+}
+
+export async function reviewPlanSourceChange(ctx: AppContext, actor: Actor, planId: string, expectedUpdatedAt: Date, rationale: string) {
+  const [plan] = await ctx.db.select().from(plans).where(eq(plans.id, planId));
+  if (!plan) throw notFound('Plan not found');
+  const role = requireTeacherLike(actor, plan.caseKey);
+  if (!canApprovePlan(role, ctx.config.planApproverRoles)) throw forbidden('Only a configured plan approver can resolve source review');
+  return ctx.db.transaction(async (tx) => {
+    await tx.select().from(cases).where(eq(cases.caseKey, plan.caseKey)).for('update');
+    const [current] = await tx.select().from(plans).where(eq(plans.id, planId)).for('update');
+    if (!current!.sourceReviewNeeded || current!.updatedAt.getTime() !== expectedUpdatedAt.getTime()) throw conflict('Plan changed. Reload before recording review');
+    await tx.update(plans).set({ sourceReviewNeeded: false, updatedAt: ctx.now() }).where(eq(plans.id, planId));
+    await audit(tx, { actorUserId: actor.userId, actorRole: role, action: 'plan.revision', targetType: 'plan', targetId: planId, caseKey: plan.caseKey, metadata: { sourceReviewCompleted: true, rationale } });
+    return { ok: true };
+  });
 }
 
 export async function activePlanFor(ctx: AppContext, caseKey: string) {
@@ -176,14 +206,28 @@ export async function updateGoal(ctx: AppContext, actor: Actor, goalId: string, 
     patch.content = content;
   }
   if (input.status) patch.status = input.status;
-  await ctx.db.update(goals).set(patch).where(eq(goals.id, goalId));
-  await audit(ctx.db, { actorUserId: actor.userId, actorRole: role, action: 'plan.transition', targetType: 'goal', targetId: goalId, caseKey: g.caseKey, metadata: { status: input.status ?? null, edited: input.content !== undefined } });
+  await ctx.db.transaction(async (tx) => {
+    await tx.select().from(cases).where(eq(cases.caseKey, g.caseKey)).for('update');
+    const [plan] = await tx.select().from(plans).where(eq(plans.id, g.planId));
+    if (plan?.status !== 'active') throw conflict('Plan changed. Review the current plan before editing a goal');
+    await tx.update(goals).set(patch).where(eq(goals.id, goalId));
+    await audit(tx, { actorUserId: actor.userId, actorRole: role, action: 'plan.transition', targetType: 'goal', targetId: goalId, caseKey: g.caseKey, metadata: { status: input.status ?? null, edited: input.content !== undefined } });
+  });
 }
 
 export async function addGoal(ctx: AppContext, actor: Actor, planId: string, content: unknown, origin: Record<string, unknown> = {}) {
+  const [plan] = await ctx.db.select().from(plans).where(eq(plans.id, planId));
+  if (!plan) throw notFound('Plan not found');
+  return ctx.db.transaction(async (tx) => {
+    await tx.select().from(cases).where(eq(cases.caseKey, plan.caseKey)).for('update');
+    return addGoalLocked({ ...ctx, db: tx }, actor, planId, content, origin);
+  });
+}
+async function addGoalLocked(ctx: AppContext, actor: Actor, planId: string, content: unknown, origin: Record<string, unknown>) {
   const [p] = await ctx.db.select().from(plans).where(eq(plans.id, planId)).limit(1);
   if (!p) throw notFound('Plan not found');
   const role = requireTeacherLike(actor, p.caseKey);
+  if (p.status !== 'active') throw conflict('Review the current active plan before adding a goal');
   const parsed = GoalContent.parse(content);
   if (parsed.target.status !== 'blocked_on_baseline' && parsed.baseline.status !== 'available') throw badRequest('A numeric target requires an available baseline');
   const [last] = await ctx.db.select().from(goals).where(eq(goals.planId, planId)).orderBy(desc(goals.sortOrder)).limit(1);
@@ -194,16 +238,26 @@ export async function addGoal(ctx: AppContext, actor: Actor, planId: string, con
 }
 
 export async function addStrategy(ctx: AppContext, actor: Actor, planId: string, kind: StrategyKind, content: unknown, origin: Record<string, unknown> = {}) {
+  const [plan] = await ctx.db.select().from(plans).where(eq(plans.id, planId));
+  if (!plan) throw notFound('Plan not found');
+  const id = await ctx.db.transaction(async (tx) => {
+    await tx.select().from(cases).where(eq(cases.caseKey, plan.caseKey)).for('update');
+    return addStrategyLocked({ ...ctx, db: tx }, actor, planId, kind, content, origin);
+  });
+  await ctx.queue.enqueue('sweep_case', { caseKey: plan.caseKey }, { dedupeKey: plan.caseKey });
+  return id;
+}
+async function addStrategyLocked(ctx: AppContext, actor: Actor, planId: string, kind: StrategyKind, content: unknown, origin: Record<string, unknown>) {
   const [p] = await ctx.db.select().from(plans).where(eq(plans.id, planId)).limit(1);
   if (!p) throw notFound('Plan not found');
   const role = requireTeacherLike(actor, p.caseKey);
+  if (p.status !== 'active') throw conflict('Review the current active plan before adding a strategy');
   const parsed = StrategyContent.parse(content);
   StrategyKind.parse(kind);
   const [last] = await ctx.db.select().from(strategies).where(eq(strategies.planId, planId)).orderBy(desc(strategies.sortOrder)).limit(1);
   const id = newId();
   await ctx.db.insert(strategies).values({ id, planId, caseKey: p.caseKey, kind, content: parsed, status: 'active', sortOrder: (last?.sortOrder ?? -1) + 1 });
   await audit(ctx.db, { actorUserId: actor.userId, actorRole: role, action: 'plan.transition', targetType: 'strategy', targetId: id, caseKey: p.caseKey, metadata: { added: true, kind, ...origin } });
-  await ctx.queue.enqueue('sweep_case', { caseKey: p.caseKey }, { dedupeKey: p.caseKey });
   return id;
 }
 
@@ -214,6 +268,11 @@ export async function updateStrategy(ctx: AppContext, actor: Actor, strategyId: 
   const patch: Partial<typeof strategies.$inferInsert> = {};
   if (input.content !== undefined) patch.content = StrategyContent.parse(input.content);
   if (input.status) patch.status = input.status;
-  await ctx.db.update(strategies).set(patch).where(eq(strategies.id, strategyId));
-  await audit(ctx.db, { actorUserId: actor.userId, actorRole: role, action: 'plan.transition', targetType: 'strategy', targetId: strategyId, caseKey: s.caseKey, metadata: { status: input.status ?? null } });
+  await ctx.db.transaction(async (tx) => {
+    await tx.select().from(cases).where(eq(cases.caseKey, s.caseKey)).for('update');
+    const [plan] = await tx.select().from(plans).where(eq(plans.id, s.planId));
+    if (plan?.status !== 'active') throw conflict('Plan changed. Review the current plan before editing a strategy');
+    await tx.update(strategies).set(patch).where(eq(strategies.id, strategyId));
+    await audit(tx, { actorUserId: actor.userId, actorRole: role, action: 'plan.transition', targetType: 'strategy', targetId: strategyId, caseKey: s.caseKey, metadata: { status: input.status ?? null } });
+  });
 }

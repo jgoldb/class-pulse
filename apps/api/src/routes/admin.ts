@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { runClassroomEvals } from '@class-pulse/ai/evals';
 import { AI_SURFACES, PATTERN_DEFINITION_STATUSES, newId, type PromptVersion } from '@class-pulse/domain';
 import { runEvals } from '@class-pulse/ai/evals';
 import { modelResolverFromConfig } from '@class-pulse/ai';
@@ -67,6 +68,11 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext) {
       throw conflict('The model is turned off for this deployment (AI_PROVIDER=off), so the eval suite cannot run. Prompt promotion stays blocked until it is turned back on.');
     }
     const prompt = await promptBody(ctx.db, id);
+    if (prompt.surface === 'classroom_draft') {
+      const report = await runClassroomEvals({ provider: ctx.provider, resolveModel: modelResolverFromConfig(ctx.aiConfig), posture: ctx.aiConfig.posture, prompt: prompt as PromptVersion });
+      const runId = await recordEvalRun(ctx.db, { promptVersionId: id, provider: report.provider, model: report.model, passed: report.passed, passedCases: report.passedCases, totalCases: report.totalCases, report });
+      return { ...report, runId };
+    }
     const { judge } = z.object({ judge: z.boolean().default(true) }).parse(req.body ?? {});
     const report = await runEvals({
       provider: ctx.provider,

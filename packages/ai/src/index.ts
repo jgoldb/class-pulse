@@ -25,6 +25,7 @@ export * from './schema';
 export * from './guardrails';
 export * from './prompts';
 export * from './pii';
+export * from './classroom';
 
 type PromptRef = Pick<PromptVersion, 'id' | 'body' | 'model' | 'params' | 'version'>;
 

@@ -80,7 +80,7 @@ export function Onboarding() {
             <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
               <Activity className="size-4" />
             </span>
-            <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>
+            <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
           </div>
         </FadeIn>
         {checkout ? (
@@ -166,7 +166,7 @@ export function Onboarding() {
                 </span>
                 <h1 className="mt-4 text-2xl font-bold tracking-tight">Your account isn't in a workspace yet</h1>
                 <p className="mt-2 text-muted">
-                  Class Pulse is invitation-based. Ask your school's administrator, or your child's teacher, to invite <span className="font-medium text-fg">{me?.user?.email ?? 'this email'}</span>, then sign in again. If you are setting up a new school, start a workspace instead.
+                  Pulsera is invitation-based. Ask your school's administrator, or your child's teacher, to invite <span className="font-medium text-fg">{me?.user?.email ?? 'this email'}</span>, then sign in again. If you are setting up a new school, start a workspace instead.
                 </p>
                 <div className="mt-6 flex flex-wrap justify-center gap-2">
                   <Button variant="secondary" onClick={() => void refresh()}>

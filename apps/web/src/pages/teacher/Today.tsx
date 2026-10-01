@@ -43,6 +43,9 @@ export function TeacherToday() {
 
   return (
     <div>
+      <nav aria-label="Support workspace" className="mb-4 flex flex-wrap gap-4 text-sm text-primary">
+        <Link to={`${base}/cases`}>Cases</Link><Link to={`${base}/patterns`}>Patterns</Link><Link to={`${base}/reviews`}>Reviews</Link><Link to={`${base}/requests`}>Family requests</Link><Link to={`${base}/class`}>My class</Link>
+      </nav>
       <PageHeader
         title={`${greeting}, ${me?.user?.displayName.split(' ')[0] ?? ''}`}
         description={attention === 0 ? 'Nothing is waiting on you. Log a few observations when you have fifteen seconds.' : `${attention} thing${attention === 1 ? '' : 's'} need${attention === 1 ? 's' : ''} a decision from you.`}

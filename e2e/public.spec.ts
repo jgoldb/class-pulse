@@ -1,5 +1,13 @@
 import { setupClerkTestingToken } from '@clerk/testing/playwright';
 import { expect, test } from './fixtures';
+import type { Page } from '@playwright/test';
+
+async function submitSignUp(page: Page) {
+  // The code field can render before Clerk finishes preparing its test email challenge.
+  const prepared = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().includes('/sign_ups/') && response.url().includes('/prepare_verification') && response.ok());
+  await page.locator('button[data-localization-key="formButtonPrimary"]').click();
+  await prepared;
+}
 
 /**
  * The public path: landing → plan → simulated checkout → Clerk sign-up → workspace onboarding →
@@ -29,7 +37,7 @@ test('plan → simulated checkout → sign-up → onboarding creates a workspace
   const email = `e2e-admin-${Date.now()}+clerk_test@example.com`;
   await page.locator('input[name="emailAddress"]').fill(email);
   await page.locator('input[name="password"]').fill(`E2E-pass-${Date.now()}!`);
-  await page.locator('button[data-localization-key="formButtonPrimary"]').click();
+  await submitSignUp(page);
   // Email verification on a development instance: test addresses accept 424242.
   const code = page.locator('input[name="code"], input[autocomplete="one-time-code"]').first();
   await expect(code).toBeVisible({ timeout: 20_000 });
@@ -61,7 +69,7 @@ test('a signed-in person without an invitation sees the onboarding explanation, 
   const email = `e2e-orphan-${Date.now()}+clerk_test@example.com`;
   await page.locator('input[name="emailAddress"]').fill(email);
   await page.locator('input[name="password"]').fill(`E2E-pass-${Date.now()}!`);
-  await page.locator('button[data-localization-key="formButtonPrimary"]').click();
+  await submitSignUp(page);
   const code = page.locator('input[name="code"], input[autocomplete="one-time-code"]').first();
   await expect(code).toBeVisible({ timeout: 20_000 });
   await code.fill('424242');
@@ -94,7 +102,7 @@ test('a teacher buying the Classroom plan sets up their own class, not a school'
   const email = `e2e-teacher-${Date.now()}+clerk_test@example.com`;
   await page.locator('input[name="emailAddress"]').fill(email);
   await page.locator('input[name="password"]').fill(`E2E-pass-${Date.now()}!`);
-  await page.locator('button[data-localization-key="formButtonPrimary"]').click();
+  await submitSignUp(page);
   const code = page.locator('input[name="code"], input[autocomplete="one-time-code"]').first();
   await expect(code).toBeVisible({ timeout: 20_000 });
   await code.fill('424242');

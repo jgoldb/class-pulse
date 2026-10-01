@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { CONTEXT_DIMENSIONS } from '@class-pulse/domain';
 import type { AppContext } from '../context';
@@ -41,7 +41,7 @@ export function registerSignalRoutes(app: FastifyInstance, ctx: AppContext) {
     const [last] = await ctx.db
       .select({ tags: signals.contextTags })
       .from(signals)
-      .where(eq(signals.caseKey, caseKey))
+      .where(and(eq(signals.caseKey, caseKey), isNull(signals.retiredAt)))
       .orderBy(desc(signals.createdAt))
       .limit(1);
     const extensions = await orgContextTags(ctx.db, c.schoolId);

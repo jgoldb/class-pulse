@@ -127,3 +127,42 @@ Two labeled datasets accumulate for free:
 
 Review both each term. Feed the first into prompt revision, the second into definition tuning.
 This is how the system improves after launch without anyone guessing.
+# Pulsera classroom drafting extension (2026-09-30)
+
+The new `classroom_draft` surface covers ABC, positive notes, parent messages, Do Now, reteach,
+small groups, SST/MTSS/FBA-support evidence packets and contextual Guide actions. Immutable v1
+remains in the registry; `classroom_draft.v2` adds the broader contracts and is seeded as **draft**.
+The administration eval route runs the 15-case `classroom.v2` suite. Promotion requires a passing
+recorded run of that suite; an older suite cannot authorize promotion. Local tests use the
+test-only mock provider; those tests alone do not establish live model quality.
+
+Live synthetic evaluation on 2026-09-30 found v2 passed 13/15 cases: one evidence-format mismatch
+and one prohibited wording failure. Immutable `classroom_draft.v3` receives canonical evidence
+strings computed after allowlist validation and clarifies acceptable limitation wording. The
+guardrails remain unchanged. V3 passed **15/15** on the configured `gpt-5.6-terra` model. Reports
+are preserved in [v2 evidence](evidence/classroom-v2-live-2026-09-30.json) and
+[v3 evidence](evidence/classroom-v3-live-2026-09-30.json). V3 remains a draft seed; deployment
+promotion still requires its own recorded passing run through administration. This result is
+synthetic quality evidence, not educator template validation or provider approval for real data.
+
+Payloads allow only lesson context and confirmed, current, permission-scoped observations with
+ephemeral source numbers. Persistent student, learner, event and section IDs are excluded. The
+existing egress gate performs PII checks and records provider provenance. Generation and a
+separate classifier must succeed; deterministic checks validate citations, forbidden claims and
+exact ABC copying, including nulls and measured zero. Classroom capture never waits for a model.
+
+Source eligibility is checked before generation, after generation and before publication. Editing
+creates an unapproved revision. Correcting/withdrawing a source marks derivatives stale; new
+confirmed session evidence invalidates prepared activities. Stale artifacts cannot be exported.
+Approval selects an audience but does not send a message or grant portal access.
+
+Reports preserve each selected observation with deterministic formatting (including absent ABC
+context), and cite every source. Guide evidence summaries use the same exact facts before a
+separate proposed action. Group suggestions require reviewed evidence on one concept for 2–8
+learners. All remain educator-reviewed suggestions; templates await qualified educator validation.
+
+Classroom-informed plan revisions currently use an educator-entered strategy and rationale with
+selected eligible event/contribution sources, rather than an additional AI call. They preserve
+existing baseline measures and show the base-to-proposed change and each source's original role.
+Accepted family reports never become teacher observations. Review narration is guarded by an
+evidence version so source correction cannot race an older model result into the current review.

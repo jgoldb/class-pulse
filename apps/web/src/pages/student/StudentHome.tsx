@@ -20,11 +20,11 @@ const RATINGS = [
  * strategies, progress, positive feedback, and a self-check. Nothing about other students, no
  * teacher notes, no hypotheses, no raw pattern candidates (enforced by the API, not by this UI).
  */
-export function StudentHome() {
+export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = {}) {
   const qc = useQueryClient();
   const { me } = useAuth();
   const cases = useQuery({ queryKey: ['cases'], queryFn: () => api.get<CaseListItem[]>('/api/cases') });
-  const caseKey = cases.data?.find((c) => c.plan?.status === 'active')?.caseKey ?? cases.data?.[0]?.caseKey;
+  const caseKey = selectedCaseKey ?? cases.data?.find((c) => c.plan?.status === 'active')?.caseKey ?? cases.data?.[0]?.caseKey;
   const view = useQuery({ queryKey: ['case', caseKey], queryFn: () => api.get<CaseView>(`/api/cases/${caseKey}`), enabled: !!caseKey });
   const [rating, setRating] = useState<number | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
@@ -59,7 +59,7 @@ export function StudentHome() {
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Hi {firstName} 👋</h1>
+          {selectedCaseKey ? <h3 className="text-xl font-bold tracking-tight">Your support goals</h3> : <h1 className="text-3xl font-bold tracking-tight">Hi {firstName} 👋</h1>}
           <p className="mt-1 text-muted">Here are your goals and how it's going.</p>
         </div>
         {recentChecks.length > 0 && (
@@ -141,7 +141,7 @@ export function StudentHome() {
           {goals.length > 1 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {goals.map((g) => (
-                <Button key={g.id} size="sm" variant={goalId === g.id ? 'primary' : 'secondary'} onClick={() => setGoalId(g.id)}>
+                <Button key={g.id} data-testid="checkin-goal" size="sm" variant={goalId === g.id ? 'primary' : 'secondary'} onClick={() => setGoalId(g.id)}>
                   {g.targetBehavior.length > 30 ? g.targetBehavior.slice(0, 28) + '…' : g.targetBehavior}
                 </Button>
               ))}

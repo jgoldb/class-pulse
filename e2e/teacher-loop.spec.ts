@@ -11,7 +11,7 @@ test('teacher landing shows what needs a decision and the roster', async ({ page
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening), Dana/);
   await expect(page.getByText('Active plans')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Roster' })).toBeVisible();
-  await expect(page.getByText('Avery Synthetic')).toBeVisible();
+  await expect(page.getByRole('link', { name: /AS Avery Synthetic Grade 6/ })).toBeVisible();
 });
 
 test('intake catches a student name at the keyboard, then generates and approves a plan', async ({ page, signInAs }) => {

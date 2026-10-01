@@ -1,11 +1,11 @@
-import { and, eq, lte } from 'drizzle-orm';
+import { and, eq, isNull, lte } from 'drizzle-orm';
 import { ReviewDecision, newId, type ComputedRecommendation, type GoalContent, type PlanContent, type PlanStatus, type PlanTransitionRecord } from '@class-pulse/domain';
 import { narrateReview } from '@class-pulse/ai';
 import { computeRecommendation } from '@class-pulse/patterns';
 import { canApprovePlan } from '@class-pulse/policy';
 import type { Actor, AppContext } from '../context';
 import { conflict, forbidden, notFound } from '../context';
-import { goals, plans, reviewCycles } from '../db/schema';
+import { cases, classSections, goals, plans, reviewCycles } from '../db/schema';
 import { audit } from './audit';
 import { requireTeacherLike, roleForCase } from './cases';
 import { activePrompts } from './prompts';
@@ -25,10 +25,23 @@ export async function openDueReviews(ctx: AppContext) {
 }
 
 export async function openReview(ctx: AppContext, cycleId: string) {
+  const [original] = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.id, cycleId));
+  if (!original) return;
+  const [linkedCase] = await ctx.db.select().from(cases).where(eq(cases.caseKey, original.caseKey));
+  if (!linkedCase) return;
+  await ctx.db.transaction(async (tx) => {
+    await tx.select().from(classSections).where(eq(classSections.id, linkedCase.sectionId)).for('update');
+    await tx.select().from(cases).where(eq(cases.caseKey, linkedCase.caseKey)).for('update');
+    await computeReview({ ...ctx, db: tx }, cycleId);
+  });
+  await ctx.queue.enqueue('narrate_review', { cycleId });
+  await ctx.queue.enqueue('sweep_case', { caseKey: original.caseKey }, { dedupeKey: original.caseKey });
+}
+async function computeReview(ctx: AppContext, cycleId: string) {
   const [cycle] = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.id, cycleId)).limit(1);
   if (!cycle) return;
   const [plan] = await ctx.db.select().from(plans).where(eq(plans.id, cycle.planId)).limit(1);
-  if (!plan || plan.status !== 'active') return;
+  if (!plan || !((cycle.status === 'scheduled' && plan.status === 'active') || (cycle.status === 'open' && cycle.sourceInvalidatedAt && plan.status === 'under_review'))) return;
   const content = plan.content as PlanContent;
   const g = await ctx.db.select().from(goals).where(and(eq(goals.planId, plan.id), eq(goals.status, 'active'))).orderBy(goals.sortOrder);
   const computed = computeRecommendation({
@@ -39,20 +52,17 @@ export async function openReview(ctx: AppContext, cycleId: string) {
   });
   const now = ctx.now();
   await ctx.db.transaction(async (tx) => {
-    await tx.update(reviewCycles).set({ status: 'open', computed, narrativeStatus: 'pending' }).where(eq(reviewCycles.id, cycleId));
+    await tx.update(reviewCycles).set({ status: 'open', computed, narrative: null, narrativeStatus: 'pending', sourceInvalidatedAt: null, evidenceVersion: cycle.status === 'scheduled' ? cycle.evidenceVersion : cycle.evidenceVersion + 1 }).where(eq(reviewCycles.id, cycleId));
     await tx
       .update(plans)
-      .set({ status: 'under_review', updatedAt: now, transitions: [...(plan.transitions as PlanTransitionRecord[]), { from: 'active', to: 'under_review', actorUserId: 'system', at: now, rationale: `Review cycle ${cycleId} due` }] })
+      .set({ status: 'under_review', updatedAt: now, transitions: plan.status === 'under_review' ? plan.transitions : [...(plan.transitions as PlanTransitionRecord[]), { from: 'active', to: 'under_review', actorUserId: 'system', at: now, rationale: `Review cycle ${cycleId} due` }] })
       .where(eq(plans.id, plan.id));
   });
-  await ctx.queue.enqueue('narrate_review', { cycleId });
-  // The review-cycle engine and the pattern engine are the same machinery (non-response-trajectory).
-  await ctx.queue.enqueue('sweep_case', { caseKey: plan.caseKey }, { dedupeKey: plan.caseKey });
 }
 
 export async function narrateCycle(ctx: AppContext, cycleId: string) {
   const [cycle] = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.id, cycleId)).limit(1);
-  if (!cycle || !cycle.computed) return;
+  if (!cycle || !cycle.computed || cycle.sourceInvalidatedAt) return;
   const [plan] = await ctx.db.select().from(plans).where(eq(plans.id, cycle.planId)).limit(1);
   if (!plan) return;
   const g = await ctx.db.select().from(goals).where(eq(goals.planId, plan.id)).orderBy(goals.sortOrder);
@@ -70,10 +80,10 @@ export async function narrateCycle(ctx: AppContext, cycleId: string) {
   const runs = 'runs' in result ? result.runs : [];
   if (result.status === 'succeeded' || result.status === 'rejected') {
     await recordRuns(ctx.db, 'review_narration', plan.caseKey, runs, result.status === 'succeeded' ? 'succeeded' : 'rejected');
-    await ctx.db.update(reviewCycles).set({ narrative: result.output, narrativeStatus: result.status === 'succeeded' ? 'ready' : 'needs_attention', narrativeRunId: runs.at(-1)?.runId ?? null }).where(eq(reviewCycles.id, cycleId));
+    await ctx.db.update(reviewCycles).set({ narrative: result.output, narrativeStatus: result.status === 'succeeded' ? 'ready' : 'needs_attention', narrativeRunId: runs.at(-1)?.runId ?? null }).where(and(eq(reviewCycles.id, cycleId), eq(reviewCycles.evidenceVersion, cycle.evidenceVersion), isNull(reviewCycles.sourceInvalidatedAt)));
   } else {
     await recordRuns(ctx.db, 'review_narration', plan.caseKey, runs, result.status === 'blocked_pii' ? 'blocked_pii' : 'failed', result.status === 'failed' ? result.error : null);
-    await ctx.db.update(reviewCycles).set({ narrativeStatus: 'failed' }).where(eq(reviewCycles.id, cycleId));
+    await ctx.db.update(reviewCycles).set({ narrativeStatus: 'failed' }).where(and(eq(reviewCycles.id, cycleId), eq(reviewCycles.evidenceVersion, cycle.evidenceVersion), isNull(reviewCycles.sourceInvalidatedAt)));
   }
 }
 
@@ -90,12 +100,13 @@ export async function requestReviewNow(ctx: AppContext, actor: Actor, planId: st
 }
 
 /** The named human decides. `decision` may differ from the computed recommendation; the rationale is required when it does. */
-export async function decideReview(ctx: AppContext, actor: Actor, cycleId: string, input: { decision: string; rationale: string | null }) {
+export async function decideReview(ctx: AppContext, actor: Actor, cycleId: string, input: { decision: string; rationale: string | null; expectedEvidenceVersion?: number }) {
   const [cycle] = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.id, cycleId)).limit(1);
   if (!cycle) throw notFound('Review cycle not found');
   const role = requireTeacherLike(actor, cycle.caseKey);
   if (!canApprovePlan(role, ctx.config.planApproverRoles)) throw forbidden(`Role ${role} may not decide reviews`);
   if (cycle.status !== 'open') throw conflict(`Review cycle is ${cycle.status}`);
+  if (cycle.sourceInvalidatedAt || (cycle.evidenceVersion > 1 && input.expectedEvidenceVersion !== cycle.evidenceVersion)) throw conflict('Review evidence changed. Refresh and inspect the current recommendation');
   const decision = ReviewDecision.parse(input.decision);
   const computed = cycle.computed as ComputedRecommendation | null;
   if (computed && computed.decision !== decision && !input.rationale) throw conflict(`Your decision differs from the computed recommendation (${computed.decision}); a rationale is required`);
@@ -106,6 +117,13 @@ export async function decideReview(ctx: AppContext, actor: Actor, cycleId: strin
   const transitions = [...(plan.transitions as PlanTransitionRecord[]), { from: 'under_review' as const, to, actorUserId: actor.userId, at: now, rationale: input.rationale }];
   const nextDays = Math.min(...(plan.content as PlanContent).measurableGoals.map((g) => g.reviewPeriodDays), 30);
   await ctx.db.transaction(async (tx) => {
+    const [linkedCase] = await tx.select().from(cases).where(eq(cases.caseKey, cycle.caseKey));
+    await tx.select().from(classSections).where(eq(classSections.id, linkedCase!.sectionId)).for('update');
+    await tx.select().from(cases).where(eq(cases.caseKey, cycle.caseKey)).for('update');
+    const [currentPlan] = await tx.select().from(plans).where(eq(plans.id, plan.id)).for('update');
+    if (!currentPlan || currentPlan.status !== 'under_review' || currentPlan.updatedAt.getTime() !== plan.updatedAt.getTime()) throw conflict('Plan changed before the review decision was saved');
+    const [current] = await tx.select().from(reviewCycles).where(eq(reviewCycles.id, cycleId)).for('update');
+    if (current!.status !== 'open' || current!.sourceInvalidatedAt || current!.evidenceVersion !== cycle.evidenceVersion) throw conflict('Review changed before the decision was saved');
     await tx.update(reviewCycles).set({ status: 'decided', decision, rationale: input.rationale, reviewerUserId: actor.userId, decidedAt: now }).where(eq(reviewCycles.id, cycleId));
     if (to === 'faded') {
       await tx.update(plans).set({ status: 'faded', updatedAt: now, transitions }).where(eq(plans.id, plan.id));

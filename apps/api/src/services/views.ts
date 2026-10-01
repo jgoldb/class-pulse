@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { ComputedRecommendation, GoalContent, PlanContent, PlanTransitionRecord, ReviewNarrative, StrategyContent } from '@class-pulse/domain';
 import { canSee, type CaseField, type PolicyRole } from '@class-pulse/policy';
 import type { Actor, AppContext } from '../context';
@@ -75,6 +75,8 @@ export async function buildCaseView(ctx: AppContext, actor: Actor, caseKey: stri
       approvedBy: approver?.name ?? null,
       approvedAt: plan.approvedAt,
       version: plan.version,
+      sourceReviewNeeded: plan.sourceReviewNeeded,
+      updatedAt: canSee('plan.draftDiff', role) ? plan.updatedAt : undefined,
       transitions: canSee('plan.draftDiff', role) ? (plan.transitions as PlanTransitionRecord[]) : undefined,
     });
     include('plan.draftDiff', plan.draftDiff);
@@ -104,14 +106,14 @@ export async function buildCaseView(ctx: AppContext, actor: Actor, caseKey: stri
 
     const rc = await ctx.db.select().from(reviewCycles).where(eq(reviewCycles.planId, plan.id)).orderBy(desc(reviewCycles.dueAt));
     view.reviewCycles = rc.map((cycle) => {
-      const n = cycle.narrative as ReviewNarrative | null;
-      const out: Record<string, unknown> = { id: cycle.id, dueAt: cycle.dueAt, status: cycle.status };
+      const n = cycle.sourceInvalidatedAt ? null : cycle.narrative as ReviewNarrative | null;
+      const out: Record<string, unknown> = { id: cycle.id, dueAt: cycle.dueAt, status: cycle.status, sourceReviewNeeded: !!cycle.sourceInvalidatedAt };
       if (canSee('review.decision', role)) {
         out.decision = cycle.decision;
         out.decidedAt = cycle.decidedAt;
       }
       if (canSee('review.computed', role)) {
-        out.computed = cycle.computed as ComputedRecommendation | null;
+        out.computed = cycle.sourceInvalidatedAt ? null : cycle.computed as ComputedRecommendation | null;
         out.rationale = cycle.rationale;
         out.narrativeStatus = cycle.narrativeStatus;
       }
@@ -134,11 +136,11 @@ export async function buildCaseView(ctx: AppContext, actor: Actor, caseKey: stri
   if (canSee('signal.selfChecks', role)) include('signal.selfChecks', (await recentSignals(ctx, caseKey, 100)).filter((x) => x.type === 'self_check').map(({ note: _n, ...r }) => r));
 
   if (canSee('pattern.candidates', role)) {
-    const rows = await ctx.db.select().from(patternCandidates).where(and(eq(patternCandidates.caseKey, caseKey), eq(patternCandidates.visible, true))).orderBy(desc(patternCandidates.detectedAt));
+    const rows = await ctx.db.select().from(patternCandidates).where(and(isNull(patternCandidates.sourceInvalidatedAt), eq(patternCandidates.caseKey, caseKey), eq(patternCandidates.visible, true))).orderBy(desc(patternCandidates.detectedAt));
     include('pattern.candidates', rows.map((r) => ({ id: r.id, definitionId: r.definitionId, title: r.title, status: r.status, strength: r.strength, routing: r.routing, detectedAt: r.detectedAt, proposalStatus: r.proposalStatus })));
   } else if (canSee('pattern.confirmedPlainLanguage', role)) {
     // Guardians: confirmed patterns only, in plain language, with the evidence shown (open question #9).
-    const rows = await ctx.db.select().from(patternCandidates).where(and(eq(patternCandidates.caseKey, caseKey), eq(patternCandidates.status, 'confirmed'))).orderBy(desc(patternCandidates.adjudicatedAt));
+    const rows = await ctx.db.select().from(patternCandidates).where(and(isNull(patternCandidates.sourceInvalidatedAt), eq(patternCandidates.caseKey, caseKey), eq(patternCandidates.status, 'confirmed'))).orderBy(desc(patternCandidates.adjudicatedAt));
     include('pattern.confirmedPlainLanguage', rows.map((r) => ({ id: r.id, title: r.title, plainLanguage: r.plainLanguage, confirmedAt: r.adjudicatedAt, evidence: canSee('pattern.evidence', role) ? { observations: r.evidenceRefs.length, measures: r.measures } : undefined })));
   }
 

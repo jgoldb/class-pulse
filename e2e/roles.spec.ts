@@ -10,7 +10,7 @@ test('student: goals, things that help, and a check-in that saves', async ({ pag
   for (const forbidden of ['Hypothes', 'Intake', 'candidate', 'Data quality', 'Teacher notes']) {
     await expect(page.getByText(new RegExp(forbidden, 'i'))).toHaveCount(0);
   }
-  const goalButtons = page.locator('button', { hasText: /Talks|Leaves/ });
+  const goalButtons = page.getByTestId('checkin-goal');
   if ((await goalButtons.count()) > 0) await goalButtons.first().click();
   await page.getByTestId('rating-3').click();
   await page.getByTestId('save-checkin').click();

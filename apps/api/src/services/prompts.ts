@@ -76,9 +76,10 @@ export async function promotePrompt(db: Db, id: string, by: string): Promise<voi
   const target = await promptBody(db, id);
   if (target.status === 'active') throw conflict('Already active');
   if (target.status === 'retired') throw badRequest('Retired versions cannot be promoted; create a new version');
-  if (target.surface === 'plan_generation') {
+  if (target.surface === 'plan_generation' || target.surface === 'classroom_draft') {
     const [run] = await db.select().from(evalRuns).where(eq(evalRuns.promptVersionId, id)).orderBy(desc(evalRuns.createdAt)).limit(1);
     if (!run || !run.passed) throw badRequest('Promotion blocked: no passing eval run recorded for this prompt version', { latestEval: run ?? null });
+    if (target.surface === 'classroom_draft' && (run.report as { suiteVersion?: string }).suiteVersion !== 'classroom.v2') throw badRequest('Promotion requires the current classroom evaluation suite');
   }
   await db.transaction(async (tx) => {
     await tx.update(promptVersions).set({ status: 'retired' }).where(and(eq(promptVersions.surface, target.surface), eq(promptVersions.status, 'active')));

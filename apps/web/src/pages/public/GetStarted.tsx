@@ -24,7 +24,7 @@ function Frame({ children, step }: { children: React.ReactNode; step: 1 | 2 | 3 
             <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
               <Activity className="size-4" />
             </span>
-            <span className="text-[15px] font-bold tracking-tight">Class Pulse</span>
+            <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
           </Link>
           <ol className="flex items-center gap-2 text-xs text-muted">
             {['Plan', 'Payment', 'Workspace'].map((label, i) => (

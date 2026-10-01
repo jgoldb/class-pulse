@@ -1,4 +1,7 @@
 import type { AppContext } from '../context';
+import { enqueueTomorrowSchedules } from '../services/tomorrow';
+import { expirePendingClassroomContent } from '../services/pulse-retention';
+import { expireContributions } from '../services/contributions';
 
 // Minimal cron for the two scheduled jobs (docs/05): nightly pattern sweep and opening due
 // review cycles. Supports the standard 5-field form with numbers, wildcards, ranges and step
@@ -27,6 +30,8 @@ export function startScheduler(ctx: AppContext): () => void {
     const minute = Math.floor(now.getTime() / 60_000);
     if (minute === lastMinute) return;
     lastMinute = minute;
+    await enqueueTomorrowSchedules(ctx);
+    if (now.getUTCMinutes() === 10) { await expirePendingClassroomContent(ctx); await expireContributions(ctx); }
     if (cronMatches(ctx.config.jobs.sweepCron, now)) {
       await ctx.queue.enqueue('sweep_all', {}, { dedupeKey: `nightly-${now.toISOString().slice(0, 10)}` });
     }

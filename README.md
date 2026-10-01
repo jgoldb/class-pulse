@@ -1,4 +1,4 @@
-# Class Pulse
+# Pulsera (Class Pulse)
 
 A role-scoped web app where a teacher submits de-identified behavior observations, an LLM drafts
 a structured behavior-support plan, a human approves it, and the plan becomes a live tracked
@@ -13,6 +13,25 @@ deterministic and auditable. Interpretation is generative. Decisions are always 
 Postgres, OpenAI), verified by a browser harness that drives every screen for every role. The
 only simulated component is the payment page, which stands in for Stripe until Stripe is wired.
 See [08 — Implementation notes](docs/08-implementation-notes.md).
+
+**Pulsera expansion:** implementation is in progress against
+[09 — Pulsera implementation plan](docs/09-pulsera-implementation-plan.md). Synthetic workspaces
+can enable Class Pulse in **Administration → School structure**, choosing the school timezone.
+The new flow includes no-case observations, seating snapshots, reviewed roster CSV imports,
+correction/undo, typed drafts, exact-version approval/export, and scheduled Tomorrow preparation.
+It also includes reviewed small groups, SST/MTSS/FBA-support packets, contextual Guide actions,
+follow-ups, multiple-child profiles, attributed student/family contributions and responses,
+classroom-informed plan revisions, section-scoped memory, and suppressed aggregate Insights.
+Communication approval and portal sharing are separate actions; external delivery remains off.
+The new `classroom_draft.v3` prompt starts as a draft: run its 15-case classroom eval suite and
+promote it in administration before live generation. AI-off capture still works.
+External transcription and real-student pilots remain gated on school/provider approvals. See
+the [pilot runbook and outstanding evidence](docs/10-pulsera-pilot-runbook.md).
+
+`npx playwright test --config playwright.pulse.config.ts` runs the isolated synthetic classroom
+component suite in Edge at desktop and phone sizes without loading credentials or resetting a
+database. API integration tests use ephemeral PGlite. This is separate from the existing Clerk /
+Neon / live-model browser suite and does not establish operational pilot readiness.
 
 ## Stack
 
@@ -51,7 +70,7 @@ npm run seed                # workspace, sections, 26 synthetic students, Clerk 
 npm run dev                 # API on :3001, web on :5173
 ```
 
-Open http://localhost:5173. Demo accounts (password printed by the seed):
+Open http://localhost:5173. Demo accounts use the configured development `SEED_PASSWORD`:
 
 | Role | Email |
 |---|---|
@@ -75,15 +94,17 @@ signs in.
 ## Verify
 
 ```bash
-npm test              # 124 unit/integration tests: domain, policy matrix, PII, guardrails,
+npm test              # 172 unit/integration tests: domain, policy matrix, PII, guardrails,
                       # egress invariant, detection precision/recall, review engine, API per role
 npm run typecheck
 npm run lint          # includes the rule that only the egress gate may import the provider SDK
+npm run e2e:pulse     # 6 isolated desktop/phone walkthroughs; synthetic API fixtures, no DB reset
 npm run e2e           # Playwright: seeds the e2e Neon branch through the real model, then drives
                       # sign-up, intake→draft→approval→quick entry, patterns, reviews, every role,
                       # and captures screenshots of every screen at desktop and phone widths
 npm run e2e:fast      # same, reusing the previous seed
 npm run evals         # 20-case plan-generation eval suite on the real model (~17 min)
+npm run evals:classroom # 15 synthetic classroom cases on the configured model; no DB mutation
 ```
 
 Screenshots from the harness land in `e2e/screenshots/<desktop|mobile>/`.
@@ -101,7 +122,7 @@ packages/
               (immutable versions), guardrails/, pii/, evals/.
   patterns/   The rule catalog as data, the detection runner, the review-cycle engine, evals.
 e2e/          Playwright harness: fixtures, specs, seed-then-start launcher.
-docs/         The plan (00–07) and implementation notes (08).
+docs/         Original plan (00–07), implementation notes (08), and Pulsera implementation plan (09).
 ```
 
 ## The plan
@@ -117,4 +138,5 @@ docs/         The plan (00–07) and implementation notes (08).
 | [06 — Roadmap](docs/06-roadmap.md) | Phased build order with exit criteria |
 | [07 — Open questions](docs/07-open-questions.md) | Decisions to make before/while building |
 | [08 — Implementation notes](docs/08-implementation-notes.md) | What was built, deviations, decisions, eval findings |
+| [09 - Pulsera implementation plan](docs/09-pulsera-implementation-plan.md) | Classroom workflow, migration, phased delivery, open questions, and deferred scope |
 | [Appendix A](docs/appendix-a-source-prompt.md) | Source prompt (v0) from the originating assignment |

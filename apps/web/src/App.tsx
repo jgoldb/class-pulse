@@ -7,6 +7,8 @@ import { CheckoutPage, GetStarted } from './pages/public/GetStarted';
 import { Onboarding } from './pages/public/Onboarding';
 import { TeacherShell } from './pages/teacher/TeacherShell';
 import { TeacherToday } from './pages/teacher/Today';
+import { ClassPulse } from './pages/teacher/ClassPulse';
+import { ClassroomDrafts } from './pages/teacher/ClassroomDrafts';
 import { CasesList } from './pages/teacher/CasesList';
 import { MyClass } from './pages/teacher/MyClass';
 import { IntakePage } from './pages/teacher/Intake';
@@ -21,9 +23,8 @@ import { PrintPlan } from './pages/teacher/PrintPlan';
 import { Requests } from './pages/teacher/Requests';
 import { SupportHome } from './pages/support/SupportHome';
 import { StudentShell } from './pages/student/StudentShell';
-import { StudentHome } from './pages/student/StudentHome';
+import { PulseProfiles } from './pages/PulseProfiles';
 import { FamilyShell } from './pages/family/FamilyShell';
-import { FamilyHome } from './pages/family/FamilyHome';
 import { AdminShell } from './pages/admin/AdminShell';
 import { AdminOverview } from './pages/admin/Overview';
 import { AdminCatalog } from './pages/admin/Catalog';
@@ -73,9 +74,13 @@ export function App() {
       <Route path="/onboarding" element={<Onboarding />} />
 
       <Route path="/teacher" element={<RequireRole roles={TEACHERISH}><TeacherShell surface="teacher" /></RequireRole>}>
-        <Route index element={<TeacherToday />} />
+        <Route index element={<ClassPulse />} />
+        <Route path="support" element={<TeacherToday />} />
+        <Route path="drafts" element={<ClassroomDrafts />} />
+        <Route path="tomorrow" element={<ClassroomDrafts tomorrow />} />
         <Route path="cases" element={<CasesList />} />
         <Route path="class" element={<MyClass />} />
+        <Route path="students" element={<PulseProfiles role="teacher" />} />
         <Route path="intake" element={<IntakePage />} />
         <Route path="cases/:caseKey" element={<CaseDetail />} />
         <Route path="cases/:caseKey/log" element={<QuickEntry />} />
@@ -104,11 +109,11 @@ export function App() {
       </Route>
 
       <Route path="/student" element={<RequireRole roles={['student']}><StudentShell /></RequireRole>}>
-        <Route index element={<StudentHome />} />
+        <Route index element={<PulseProfiles role="student" />} />
       </Route>
 
       <Route path="/family" element={<RequireRole roles={['guardian']}><FamilyShell /></RequireRole>}>
-        <Route index element={<FamilyHome />} />
+        <Route index element={<PulseProfiles role="guardian" />} />
       </Route>
 
       <Route path="/admin" element={<RequireRole roles={['administrator']}><AdminShell /></RequireRole>}>

@@ -6,12 +6,15 @@ import { expect, expectToast, pickOption, test } from './fixtures';
  */
 test.describe.configure({ mode: 'serial' });
 
-test('teacher landing shows what needs a decision and the roster', async ({ page, signInAs }) => {
+test('teacher landing is Class Pulse, and Support shows what needs a decision and the roster', async ({ page, signInAs }) => {
   await signInAs('teacher');
+  await expect(page.getByText('Class Pulse™')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Seating chart' })).toBeVisible();
+  await page.goto('/teacher/support');
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening), Dana/);
-  await expect(page.getByText('Active plans')).toBeVisible();
+  await expect(page.getByText('Active plans').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Roster' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /AS Avery Synthetic Grade 6/ })).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'Avery Synthetic' }).filter({ hasText: 'Grade 6' }).first()).toBeVisible();
 });
 
 test('intake catches a student name at the keyboard, then generates and approves a plan', async ({ page, signInAs }) => {

@@ -11,6 +11,7 @@ import { audit } from './audit';
 import { teacherSections } from './classroom';
 import { invalidateEventArtifacts, invalidateSessionActivities } from './pulse-lineage';
 import { rejectExpiredRequest } from './classroom-receipts';
+import { daysAgo, retentionFor } from './learner-records';
 
 const hash = (input: unknown) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
 function trail(db: Db, actor: Actor, action: AuditAction, targetType: string, targetId: string, metadata: Record<string, unknown> = {}) {
@@ -192,7 +193,7 @@ export async function confirmEvent(ctx: AppContext, actor: Actor, id: string, ex
     if (!link) throw conflict('Learner is no longer available');
     await learnerFor(tx, actor, event.sectionId, link.studentId);
     if (current!.status === 'confirmed') return { id, revision: expectedRevision };
-    if (revision!.createdAt.getTime() < ctx.now().getTime() - 30 * 86400000) throw conflict('Pending observation expired');
+    if (revision!.createdAt < daysAgo(ctx.now(), (await retentionFor(tx, event.schoolId)).pendingDays)) throw conflict('Pending observation expired');
     await tx.update(eventRevisions).set({ confirmedBy: actor.userId, confirmedAt: ctx.now() }).where(eq(eventRevisions.id, revision!.id));
     await tx.update(classroomEvents).set({ status: 'confirmed' }).where(eq(classroomEvents.id, id));
     await invalidateSessionActivities(tx, event.sessionId);

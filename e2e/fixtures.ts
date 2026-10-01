@@ -51,6 +51,29 @@ export const test = base.extend<{ signInAs: (key: AccountKey) => Promise<void> }
 
 export { expect };
 
+/**
+ * The seed leaves the demo student's review cycle due on purpose, which holds the plan in
+ * `under_review`. Specs that need an active plan settle it here (decision: continue) instead of
+ * relying on another spec having done so first.
+ */
+export async function ensureActivePlan(page: Page, student: RegExp) {
+  await page.goto('/teacher/reviews');
+  const review = page.getByRole('link', { name: student }).first();
+  // The list loads asynchronously: give it time before concluding there is no review to settle.
+  await review.waitFor({ timeout: 15_000 }).catch(() => undefined);
+  if (!(await review.count())) return;
+  await review.click();
+  await expect(page).toHaveURL(/\/teacher\/reviews\//);
+  // The decision panel renders after the review loads; only a decided review lacks it.
+  await expect(page.getByRole('heading', { name: 'Plan review' })).toBeVisible();
+  await page.getByTestId('record-review').waitFor({ timeout: 15_000 }).catch(() => undefined);
+  if (!(await page.getByTestId('record-review').count())) return;
+  await page.getByTestId('review-continue').click();
+  await page.getByTestId('review-rationale').fill('Continuing the current plan so classroom input can inform a revision (e2e).');
+  await page.getByTestId('record-review').click();
+  await expectToast(page, /Review decided/);
+}
+
 /** Radix select helper: open the trigger and pick an option by visible text. */
 export async function pickOption(page: Page, triggerLabel: string | RegExp, optionText: string | RegExp) {
   await page.getByRole('combobox', { name: triggerLabel }).first().click();

@@ -23,7 +23,7 @@ export interface ModelResolution {
 export interface EgressLogEntry {
   retentionClass?: 'classroom_pending';
   runId: string;
-  surface: AiSurface;
+  surface: AiSurface | 'voice_transcription';
   caseKey: string | null;
   promptVersionId: string;
   model: string;
@@ -159,6 +159,30 @@ export class EgressGate {
       const error = err instanceof Error ? err.message : String(err);
       await this.opts.writeLog({ ...base, status: 'provider_error', latencyMs: run.latencyMs, usage: null, piiWarnings: warnings, error });
       return { ok: false, reason: 'provider_error', error, retryable, run };
+    }
+  }
+
+  /**
+   * Voice transcription through the same gate: the audio is never logged or stored, only its size,
+   * type and hash; the transcript is scanned for identifiers and returned to the teacher for review.
+   */
+  async transcribe(input: { audio: Uint8Array; mimeType: string; model: string; language: string; denyNames: string[] }): Promise<{ ok: true; text: string; piiWarnings: PiiSpan[]; runId: string } | { ok: false; error: string; retryable: boolean; runId: string }> {
+    const runId = this.opts.newRunId();
+    const started = Date.now();
+    const base = {
+      runId, surface: 'voice_transcription' as const, caseKey: null, promptVersionId: 'voice_transcription', model: input.model, provider: this.opts.provider.name,
+      instructions: '', input: `[audio ${input.audio.length} bytes ${input.mimeType}; not retained]`, inputHash: createHash('sha256').update(input.audio).digest('hex'),
+      posture: { ...this.opts.posture, store: false as const }, at: new Date(),
+    };
+    try {
+      const res = await this.opts.provider.transcribe({ model: input.model, audio: input.audio, mimeType: input.mimeType, language: input.language });
+      const piiWarnings = detectPii(res.text, { denyNames: input.denyNames });
+      await this.opts.writeLog({ ...base, status: 'succeeded', latencyMs: Date.now() - started, usage: null, piiWarnings, error: null });
+      return { ok: true, text: res.text.trim(), piiWarnings, runId };
+    } catch (err) {
+      const retryable = err instanceof ProviderError ? err.retryable : true;
+      await this.opts.writeLog({ ...base, status: 'provider_error', latencyMs: Date.now() - started, usage: null, piiWarnings: [], error: err instanceof Error ? err.message.slice(0, 300) : 'Transcription failed' });
+      return { ok: false, error: 'Transcription unavailable. Try again, or type the observation.', retryable, runId };
     }
   }
 }

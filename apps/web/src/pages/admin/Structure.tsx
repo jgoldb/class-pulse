@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import { GraduationCap, LayoutGrid, UserPlus } from 'lucide-react';
 import { PageHeader } from '../../components/AppShell';
 import { PulseSettings } from '../../components/PulseSettings';
+import { LearnerRecords } from '../../components/LearnerRecords';
+import { VoiceApprovals } from '../../components/VoiceApprovals';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Empty, Field, Input, PageSkeleton, Select } from '../../components/ui';
 import { ApiError, api } from '../../lib/api';
 
@@ -38,6 +40,8 @@ export function AdminStructure() {
       <PageHeader title="School structure" description="Class sections and students. Teachers are invited per section; students, families and support staff per student. Student names live only in the identified plane and never reach the model." />
       {err && <Callout tone="danger" className="mb-4">{err.message}</Callout>}
       <PulseSettings />
+      <VoiceApprovals />
+      <LearnerRecords />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title="Add a class section" />

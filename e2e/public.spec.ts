@@ -16,7 +16,8 @@ async function submitSignUp(page: Page) {
  */
 test('landing page presents the product and both entry points', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Notice what a busy teacher would miss');
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Teach naturally');
+  await expect(page.getByText('The AI classroom operating system')).toBeVisible();
   await expect(page.getByRole('link', { name: /Start a workspace/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /I have an invitation/ })).toBeVisible();
 });

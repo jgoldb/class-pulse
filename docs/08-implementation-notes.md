@@ -238,3 +238,109 @@ confirmation, accessible family correction labels, a single top-level profile he
 classroom prompt evaluation controls in administration. V3 also passed its 15-case evaluation
 through administration and was promoted in the synthetic E2E database. New deployments still
 require their own passing evaluation and explicit promotion.
+
+# Pulsera guide alignment — 2026-10-01
+
+The owner supplied `Pulsera_GitHub_to_Vision_Implementation_Guide.docx`, a checklist (sections
+A–U) for moving the product's front door from case management to the classroom. Most of its
+infrastructure already existed from plan 09; the gaps were in the teacher experience. Status per
+section is in [11 — Pulsera guide alignment](11-pulsera-guide-alignment.md).
+
+Changes in this pass:
+
+- **Class Pulse home rebuilt** (`pages/teacher/ClassPulse.tsx` plus `pages/teacher/pulse/*`).
+  The class is the primary object: the class switcher sits in the header (`?class=` keeps the
+  choice across refreshes without browser storage), today's session reopens automatically, and
+  the session bar carries date, period, topic and objective onto every capture. The seating chart
+  shows per-student counts by observation type, a pending marker and the last interaction; "not
+  yet observed" is a highlight, never a score. Seats are arranged in place (click a student, then a
+  seat; columns adjustable) and still apply from the next session.
+- **One-tap capture dock** with the guide's seven actions. Participation is one tap; Praise and
+  Check-in offer neutral presets (to be refined with the pilot teacher, Q6) or free text;
+  Understanding defaults the concept to the session topic; Behavior opens the ABC form; Note is a
+  new observation kind; Voice is visibly disabled until a school approves an audio provider (Q4).
+  Late/absent and exit tickets live under More. Every quick save shows a toast with Undo. On phones
+  the dock sticks above the tab bar and collapses until a student is selected.
+- **`note` observation kind** in `packages/domain/src/classroom.ts`: the note text is required and
+  goes through the same roster/PII check as every other field. No migration (observations are
+  typed JSON). The classroom prompt formats evidence generically, so prompt v3 is unchanged; its
+  eval suite has no note case yet.
+- **Live-to-Draft from the activity feed**: each confirmed observation offers the drafts the guide
+  maps to it (praise → positive note / family message, behavior → ABC, needs-practice → reteach /
+  Do Now, check-in or note → next step) and shows any drafts already made from that exact version
+  with their Teacher Confirm state. Multi-source drafts (groups, reports) use an explicit selection.
+- **Teacher Confirm made visible** (`components/TeacherConfirm.tsx`): Suggested → Confirmed →
+  Logged for drafts; observations show Suggested (saved for review) or Confirmed. Off-path states
+  (preparing, failed, AI off, source changed, discarded) are labelled instead of raw enums.
+- **Draft Inbox** (`pages/teacher/ClassroomDrafts.tsx`): grouped into Documentation, Instruction,
+  Family, Positive notes, Tomorrow and Intervention reviews, with To review / Approved / Deferred
+  filters. Each draft shows **What happened** (teacher observations), **What Pulsera drafted** (AI
+  suggestion, dashed and violet) or **Approved record** (green), then the approval step. `GET
+  /api/pulse/drafts` now returns `students`, `evidenceKinds`, `session`, `title` and
+  `approvedAudience`; stale rows stay content-free, title included (tested).
+- The teacher shell no longer offers "New intake" as its primary action; intake stays on Support.
+- **No manual setup after a deploy.** Two defaults from the 2026-09-30 pass left the main
+  features broken on any new or existing database until someone found the right admin pages:
+  - Class Pulse was off per workspace (`pulsera_enabled` default false), a pilot-rollout
+    precaution that duplicated the real gates. Migration `0016` makes it default on and turns it
+    on for existing workspaces whose learners are all synthetic; a workspace with any
+    non-synthetic learner stays off. Demonstration posture and synthetic-only capture are still
+    enforced at runtime, and administrators can still switch it off.
+  - No classroom prompt was active anywhere, although `classroom_draft.v3` had passed 15/15 live
+    (`docs/evidence/classroom-v3-live-2026-09-30.json`). It is now marked `active` in the registry,
+    like `plan_generation.v3`, and `seedPrompts` activates a surface's evaluated seed version on
+    boot when that surface has no active version. It never replaces a version an administrator
+    promoted; promoting a new version still requires a passing eval run (tested).
+
+Verification: 176 Vitest tests (new: the note kind, inbox context including the stale case,
+the 0016 backfill, and boot-time prompt activation), typecheck and lint pass. The isolated browser walkthroughs (`npm run e2e:pulse`) pass at
+desktop and phone width; the harness gained the `TooltipProvider` and `Toaster` the app shell
+supplies. Class Pulse capture, Live-to-Draft (positive note and ABC through the real model), the
+inbox, and approval for a family audience were driven by hand in the browser pane as the seeded
+teacher at desktop and phone sizes.
+
+## Guide completion pass — 2026-10-01 (afternoon)
+
+Closed every remaining row of [docs/11](11-pulsera-guide-alignment.md):
+
+- **Brand:** blue → teal → violet tokens (`--brand-*`, `.bg-brand`, `.text-brand`), a new mark
+  and favicon, a classroom-OS landing page, and Clerk localization so sign-in says Pulsera
+  without a dashboard change. Contrast raised to WCAG AA after axe flagged `text-subtle` and the
+  primary link colour.
+- **Capture:** keyboard shortcuts and seat navigation; per-teacher quick-pick wording
+  (`teacher_preferences`, migration 0017), roster-checked like observation text.
+- **Tomorrow Ready:** `GET /api/pulse/tomorrow/:section/bundle` and `POST …/prepare`. Preparation
+  (shared with the scheduled job) requests a Do Now, a reteach from needs-practice evidence and a
+  practice group per concept with 2–8 students; family notes stay opt-in per student.
+- **My Pulse / Family Pulse:** `pages/MyPulse.tsx`. Goal rings use the learner's last seven
+  check-ins on that goal and show "n/3 check-ins" below three. Family contributions gain sleep and
+  mood (school setting `family_wellbeing_collection`, default on) and per-item visibility; a
+  student sees family items shared with them, read-only (migration 0018).
+- **Guide and reports:** `support_recommendation` artifact and prompt `classroom_draft.v4`
+  (17/17 live; an earlier run 16/17, both in `docs/evidence/`). Guide, support and report kinds may
+  cite any confirmed session of the same class. Boot activation now also upgrades from a system
+  version the registry marks retired, so v4 reaches Fly on deploy; administrator-created versions
+  are never replaced. Report template validation per school (migration 0019) and a print/PDF view.
+- **Interventions and Insights:** intervention history on the teacher's student profile;
+  `/admin/insights` with check-in coverage and a weekly participation trend, still suppressed.
+- **Bulk review:** `POST /api/pulse/drafts/bulk` runs each exact version through the single-item
+  path; bulk approval is teacher-only.
+- **Privacy operations:** per-school retention windows (migration 0020) feed expiry, evidence
+  eligibility and profiles; learner export/erasure; `db:backup`/`db:restore` with a round-trip test
+  and a drill; an automated incident drill; axe scans in the isolated browser suite (now three
+  sizes, twelve walkthroughs).
+- **Voice:** `transcribe` on the provider interface (only `openai.ts` touches the SDK), a gate
+  method that logs size and hash only, school approvals (migration 0021), and the push-to-talk
+  review dialog. Verified live with a Windows-synthesized recording fed to Chromium as the
+  microphone; the test approval was withdrawn afterwards.
+
+E2E: `ensureActivePlan` lets `pulsera-live.spec.ts` settle the seeded review itself, so it no
+longer depends on `patterns-reviews.spec.ts` running first.
+
+Verification for this pass: 189 Vitest tests (16 files), six workspace typechecks, lint and the
+production web build pass. Isolated walkthroughs: 12 passed (desktop, tablet, phone) with axe
+WCAG 2 A/AA scans. Full live e2e on a fresh seed: 77 passed; the two failures (a duplicate
+"approved by" match in `roles.spec.ts`, and the request test that depends on it) were fixed and
+the spec re-passed 6/6 against the same database state. `pulsera-live.spec.ts` passes on its own
+on a fresh seed. Live model checks: Tomorrow preparation, positive note and ABC drafts, v4 evals,
+and voice transcription of a synthetic recording.

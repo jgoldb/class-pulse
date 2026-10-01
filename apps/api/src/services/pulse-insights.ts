@@ -10,7 +10,7 @@ import { audit } from './audit';
 export async function pulseInsights(ctx: AppContext, actor: Actor) {
   if (!actor.roles.has('administrator')) throw forbidden('Administrator role required');
   const schoolIds = [...actor.scope.adminSchoolIds], min = ctx.config.adminMinCellSize;
-  const empty = { windowDays: 30, minCellSize: min, participation: suppressCells([], min), instruction: suppressCells([], min), followUps: suppressCells([], min), documentation: suppressCells([], min) };
+  const empty = { windowDays: 30, minCellSize: min, participation: suppressCells([], min), participationTrend: [] as Array<{ weekStart: string; observed: number | null; total: number | null; suppressed: boolean }>, checkIns: suppressCells([], min), instruction: suppressCells([], min), followUps: suppressCells([], min), documentation: suppressCells([], min) };
   if (!schoolIds.length || ctx.config.deploymentPosture !== 'demonstration') return empty;
   const population = await ctx.db.select({ studentId: students.id, learnerKey: learnerLinks.learnerKey, sectionId: classSections.id, timezone: schools.timezone }).from(students)
     .innerJoin(sectionEnrollments, eq(sectionEnrollments.studentId, students.id)).innerJoin(classSections, and(eq(classSections.id, sectionEnrollments.sectionId), eq(classSections.schoolId, students.schoolId)))
@@ -44,6 +44,16 @@ export async function pulseInsights(ctx: AppContext, actor: Actor) {
   const result = {
     windowDays: 30, minCellSize: min,
     participation: group(['Recorded participation', 'No participation observation'], (id) => recent.some((r) => r.studentId === id && r.revision.observation.kind === 'participation') ? 'Recorded participation' : 'No participation observation'),
+    // Weekly coverage, each week suppressed on its own: how many current learners had at least one
+    // participation observation that week. Coverage of observation, not a measure of engagement.
+    participationTrend: [3, 2, 1, 0].map((weeksAgo) => {
+      const end = ctx.now().getTime() - weeksAgo * 7 * 86400000, start = end - 7 * 86400000;
+      const observed = new Set(recent.filter((r) => r.revision.observation.kind === 'participation' && r.revision.observedAt.getTime() >= start && r.revision.observedAt.getTime() < end).map((r) => r.studentId)).size;
+      const cells = suppressCells([{ key: 'observed', count: observed }, { key: 'not', count: roster.length - observed }], min);
+      const hidden = roster.length < min || cells.cells.some((c) => c.suppressed);
+      return { weekStart: new Date(start).toISOString().slice(0, 10), observed: hidden ? null : observed, total: roster.length < min ? null : roster.length, suppressed: hidden };
+    }),
+    checkIns: group(['Teacher check-in recorded', 'No check-in recorded'], (id) => recent.some((r) => r.studentId === id && r.revision.observation.kind === 'check_in') ? 'Teacher check-in recorded' : 'No check-in recorded'),
     instruction: group(['Latest check: demonstrated', 'Latest check: needs practice', 'Latest check: not assessed', 'No instructional check'], (id) => {
       const o = recent.find((r) => r.studentId === id && ['understanding', 'exit_ticket'].includes(r.revision.observation.kind))?.revision.observation;
       const value = o?.kind === 'understanding' ? o.evidence : o?.kind === 'exit_ticket' ? o.assessment : null;

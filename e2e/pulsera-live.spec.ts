@@ -1,12 +1,4 @@
-import { expect, test, signInAs } from './fixtures';
-
-test.afterEach(async ({ page, signInAs }) => {
-  await signInAs('admin');
-  await page.goto('/admin/structure');
-  await page.getByLabel('Enable Class Pulse').uncheck();
-  await page.getByRole('button', { name: 'Save classroom settings' }).click();
-  await expect(page.getByText('Settings saved', { exact: true })).toBeVisible();
-});
+import { ensureActivePlan, expect, expectToast, test, signInAs } from './fixtures';
 
 test('live classroom capture and family contribution retain source attribution across roles', async ({ browser, baseURL }, testInfo) => {
   test.setTimeout(900_000);
@@ -17,53 +9,52 @@ test('live classroom capture and family contribution retain source attribution a
   const admin = await adminContext.newPage(), teacher = await teacherContext.newPage(), family = await familyContext.newPage();
   for (const page of [admin, teacher, family]) page.setDefaultTimeout(30_000);
   try {
+    // A fresh seed must work with no admin setup: Class Pulse on, classroom prompt active.
     await signInAs(admin, 'admin');
-    await admin.goto('/admin/structure');
-    await admin.getByLabel('Enable Class Pulse').check();
-    await admin.getByRole('button', { name: 'Save classroom settings' }).click();
-    await expect(admin.getByText('Settings saved', { exact: true })).toBeVisible();
     await admin.goto('/admin/prompts');
-    const prompt = admin.getByRole('row').filter({ has: admin.getByText('classroom_draft.v3', { exact: true }) });
-    await expect(prompt).toBeVisible();
-    if (await prompt.getByRole('button', { name: 'Promote', exact: true }).count()) {
-      await prompt.getByRole('button', { name: 'Run evals', exact: true }).click();
-      await expect(admin.getByText('Eval run: 15/15 cases passed', { exact: true })).toBeVisible({ timeout: 600_000 });
-      await prompt.getByRole('button', { name: 'Promote', exact: true }).click();
-      await expect(prompt.getByText('active', { exact: true })).toBeVisible();
-    }
+    const prompt = admin.getByRole('row').filter({ has: admin.getByText('classroom_draft.v4', { exact: true }) });
+    await expect(prompt.getByText('active', { exact: true })).toBeVisible();
     await signInAs(teacher, 'teacher');
-    await teacher.getByLabel('Lesson topic').fill('Fractions');
-    await teacher.getByRole('button', { name: 'Open class', exact: true }).click();
-    await teacher.getByRole('button', { name: /Avery Synthetic/ }).click();
-    await teacher.getByRole('button', { name: 'Confirm participation', exact: true }).click();
-    await expect(teacher.getByText('Contributed', { exact: true })).toBeVisible();
-    await teacher.getByRole('button', { name: 'Correct', exact: true }).click();
-    await teacher.getByRole('dialog').getByRole('combobox', { name: 'Action', exact: true }).selectOption('asked_question');
+    // Today's session reopens automatically on a rerun against the same seed, so wait for the
+    // page to settle on either the session bar or the open-class form before deciding.
+    await expect(teacher.getByRole('button', { name: 'Open class', exact: true }).or(teacher.getByRole('button', { name: /^Session/ }))).toBeVisible();
+    if (await teacher.getByRole('button', { name: 'Open class', exact: true }).isVisible()) {
+      await teacher.getByLabel('Lesson topic').fill('Fractions');
+      await teacher.getByRole('button', { name: 'Open class', exact: true }).click();
+    }
+    await teacher.getByRole('option', { name: /Avery Synthetic/ }).click();
+    await teacher.getByRole('button', { name: 'Participation', exact: true }).click();
+    const event = teacher.getByRole('listitem').filter({ hasText: 'Avery Synthetic' }).filter({ hasText: 'Contributed' }).first();
+    await expect(event).toBeVisible();
+    await event.getByRole('button', { name: /More actions/ }).click();
+    await teacher.getByRole('menuitem', { name: 'Correct' }).click();
+    await teacher.getByRole('dialog').getByRole('radio', { name: 'Asked a question' }).click();
     await teacher.getByLabel('Reason for correction').fill('Clarified the observable action');
     await teacher.getByRole('button', { name: 'Confirm correction', exact: true }).click();
-    await expect(teacher.getByText('Asked question', { exact: true })).toBeVisible();
-    await teacher.getByLabel('Use this observation as draft evidence').check();
-    await teacher.getByRole('combobox', { name: 'Draft type', exact: true }).selectOption('parent_message');
-    await teacher.getByRole('button', { name: 'Prepare from selected evidence' }).click();
-    await expect(teacher.getByText('Draft requested. Review its status and wording in Drafts.', { exact: true })).toBeVisible();
+    const corrected = teacher.getByRole('listitem').filter({ hasText: 'Avery Synthetic' }).filter({ hasText: 'Asked question' }).first();
+    await expect(corrected).toBeVisible();
+    await corrected.getByRole('button', { name: /Parent communication draft/ }).click();
+    await expect(corrected.getByText('Family message', { exact: true })).toBeVisible();
     await teacher.getByRole('link', { name: 'Open drafts', exact: true }).click();
     await expect(teacher).toHaveURL(/\/teacher\/drafts$/);
-    await teacher.getByRole('button', { name: /Parent message/ }).first().click();
+    await teacher.getByRole('button', { name: /Family message/ }).first().click();
     await expect(teacher.getByRole('button', { name: 'Approve version 1' })).toBeVisible({ timeout: 180_000 });
-    await teacher.getByRole('combobox', { name: 'Intended audience' }).selectOption('family');
+    await teacher.getByRole('radio', { name: 'Family' }).click();
     await teacher.getByRole('button', { name: 'Approve version 1' }).click();
     await teacher.getByRole('button', { name: 'Share approved version in family portal' }).click();
     await expect(teacher.getByRole('button', { name: 'Remove from portal' })).toBeVisible();
     await signInAs(family, 'guardian');
-    await family.getByRole('combobox', { name: /^Child/ }).selectOption({ label: 'Avery Synthetic' });
-    await family.getByRole('combobox', { name: /^Teacher/ }).first().selectOption({ label: 'Dana Whitfield' });
-    await family.getByLabel('Contribution type').selectOption('home_strategy');
-    await family.getByLabel('Strategy', { exact: true }).fill(strategy);
-    await family.getByRole('textbox', { name: 'Observed outcome', exact: true }).fill('Completed the next example independently');
-    await family.getByRole('button', { name: 'Submit for teacher review' }).click();
-    await expect(family.getByText('Submitted to your teacher. This is awaiting review.', { exact: true })).toBeVisible();
+    await expect(family.getByText('Family Pulse™')).toBeVisible();
+    await family.getByRole('button', { name: 'Something that worked at home' }).click();
+    const share = family.getByRole('dialog');
+    await share.getByRole('combobox', { name: /^Teacher/ }).selectOption({ label: 'Dana Whitfield' });
+    await share.getByLabel('Strategy', { exact: true }).fill(strategy);
+    await share.getByRole('textbox', { name: 'Observed outcome', exact: true }).fill('Completed the next example independently');
+    await share.getByRole('button', { name: 'Submit for teacher review' }).click();
+    await expectToast(family, 'Submitted to your teacher. This is awaiting review.');
+    await ensureActivePlan(teacher, /Avery Synthetic/);
     await teacher.goto('/teacher/students');
-    await teacher.getByRole('combobox', { name: /^Learner/ }).selectOption({ label: 'Avery Synthetic' });
+    await teacher.getByRole('radio', { name: /Avery Synthetic/ }).click();
     const contribution = teacher.getByTestId('contribution').filter({ hasText: strategy });
     await contribution.getByLabel('Your response').fill('Thank you. We can try an example in class.');
     await contribution.getByRole('combobox', { name: 'Decision', exact: true }).selectOption('accepted');

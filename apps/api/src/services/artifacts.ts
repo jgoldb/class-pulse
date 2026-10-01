@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { ArtifactContent, RequestArtifact, newId, type ArtifactPayload, type ArtifactSource } from '@class-pulse/domain';
+import { ArtifactContent, RequestArtifact, newId, type ArtifactKind, type ArtifactPayload, type ArtifactSource } from '@class-pulse/domain';
 import { checkClassroomArtifact, generateClassroomArtifact } from '@class-pulse/ai';
 import { canReadClassroomRecord } from '@class-pulse/policy';
 import type { Actor, AppContext } from '../context';
@@ -12,9 +12,14 @@ import { requirePulse, sessionFor, validateClassroomText } from './pulse';
 import { activePrompt } from './prompts';
 import { recordRuns } from './ai';
 import { buildActor } from './scope';
+import { TEMPLATE_KINDS, templateValidation } from './report-templates';
+import { daysAgo, daysAhead, retentionFor } from './learner-records';
 
 type Draft = typeof classroomDrafts.$inferSelect;
-async function eligibleEvidence(db: Db, ctx: AppContext, actor: Actor, sessionId: string, sources: ArtifactSource[]) {
+/** Kinds that summarise a learner's history rather than one lesson may cite any session of the same class. */
+const HISTORY_KINDS: ArtifactKind[] = ['guide_explain', 'guide_adjust', 'guide_next_step', 'support_recommendation', 'sst_report', 'mtss_report', 'fba_observations'];
+async function eligibleEvidence(db: Db, ctx: AppContext, actor: Actor, sessionId: string, sources: ArtifactSource[], kind?: ArtifactKind) {
+  const [anchor] = await db.select({ sectionId: classSessions.sectionId }).from(classSessions).where(eq(classSessions.id, sessionId));
   const evidence = [];
   const subjects = new Set<string>();
   for (const [index, source] of sources.entries()) {
@@ -24,7 +29,7 @@ async function eligibleEvidence(db: Db, ctx: AppContext, actor: Actor, sessionId
       .innerJoin(sectionEnrollments, and(eq(sectionEnrollments.studentId, learnerLinks.studentId), eq(sectionEnrollments.sectionId, classroomEvents.sectionId)))
       .innerJoin(students, and(eq(students.id, learnerLinks.studentId), eq(students.schoolId, classroomEvents.schoolId)))
       .where(and(eq(classroomEvents.id, source.eventId), eq(students.synthetic, true)));
-    if (!e || !canReadClassroomRecord(actor.scope, actor.userId, e.event) || e.event.sessionId !== sessionId || e.event.revision !== source.revision || e.event.status !== 'confirmed' || !e.revision.confirmedAt || e.revision.observedAt.getTime() < ctx.now().getTime() - 120 * 86400000) throw conflict('Source evidence changed, expired, or is no longer available. Prepare a new draft.');
+    if (!e || !canReadClassroomRecord(actor.scope, actor.userId, e.event) || (kind && HISTORY_KINDS.includes(kind) ? e.event.sectionId !== anchor?.sectionId : e.event.sessionId !== sessionId) || e.event.revision !== source.revision || e.event.status !== 'confirmed' || !e.revision.confirmedAt || e.revision.observedAt < daysAgo(ctx.now(), (await retentionFor(db, e.event.schoolId)).memoryDays)) throw conflict('Source evidence changed, expired, or is no longer available. Prepare a new draft.');
     subjects.add(e.revision.learnerKey);
     evidence.push({ number: index + 1, observation: e.revision.observation });
   }
@@ -33,8 +38,8 @@ async function eligibleEvidence(db: Db, ctx: AppContext, actor: Actor, sessionId
 async function payloadFor(db: Db, ctx: AppContext, actor: Actor, draft: Pick<Draft, 'sessionId' | 'sources' | 'kind'>): Promise<ArtifactPayload> {
   const [session] = await db.select().from(classSessions).where(eq(classSessions.id, draft.sessionId));
   if (!session) throw notFound('Session not found');
-  const { evidence, subjects } = await eligibleEvidence(db, ctx, actor, draft.sessionId, draft.sources);
-  if (['abc', 'positive_note', 'parent_message', 'sst_report', 'mtss_report', 'fba_observations'].includes(draft.kind) && subjects.size !== 1) throw badRequest('This artifact must concern exactly one student');
+  const { evidence, subjects } = await eligibleEvidence(db, ctx, actor, draft.sessionId, draft.sources, draft.kind);
+  if (['abc', 'positive_note', 'parent_message', 'sst_report', 'mtss_report', 'fba_observations', 'support_recommendation'].includes(draft.kind) && subjects.size !== 1) throw badRequest('This artifact must concern exactly one student');
   if (draft.kind === 'abc' && (evidence.length !== 1 || evidence[0]!.observation.kind !== 'behavior')) throw badRequest('Choose one behavior observation for an ABC draft');
   if (draft.kind === 'positive_note' && evidence.some((e) => !['praise', 'participation'].includes(e.observation.kind))) throw badRequest('Choose praise or participation for a positive note');
   if (draft.kind === 'fba_observations' && evidence.some((e) => e.observation.kind !== 'behavior')) throw badRequest('Choose behavior observations for an FBA-support evidence packet');
@@ -63,7 +68,7 @@ export async function requestArtifact(ctx: AppContext, actor: Actor, input: Requ
     if (existing) return { id: existing.id };
     const id = newId();
     const generationState = ctx.aiConfig.provider === 'off' ? 'disabled' : 'queued';
-    await tx.insert(classroomDrafts).values({ id, sessionId: session.id, sectionId: session.sectionId, schoolId: session.schoolId, kind: parsed.kind, sources, generationKey, createdBy: actor.userId, generationState, expiresAt: new Date(ctx.now().getTime() + 30 * 86400000) });
+    await tx.insert(classroomDrafts).values({ id, sessionId: session.id, sectionId: session.sectionId, schoolId: session.schoolId, kind: parsed.kind, sources, generationKey, createdBy: actor.userId, generationState, expiresAt: daysAhead(ctx.now(), (await retentionFor(tx, session.schoolId)).pendingDays) });
     if (generationState === 'queued') await tx.insert(jobs).values({ id: `generate_classroom:${id}:0`, type: 'generate_classroom', payload: { draftId: id } }).onConflictDoNothing();
     await audit(tx, { actorUserId: actor.userId, actorRole: 'teacher', action: 'artifact.request', targetType: 'classroom_draft', targetId: id, metadata: { kind: parsed.kind, sourceCount: sources.length } });
     return { id };
@@ -86,7 +91,45 @@ export async function listArtifacts(ctx: AppContext, actor: Actor) {
     visible.push(row);
   }
   await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'artifact.read', targetType: 'classroom_draft', metadata: { count: visible.length } });
-  return visible;
+  return inboxContext(ctx, actor, visible);
+}
+
+/**
+ * What the inbox shows beside each draft: who it concerns, what kind of observations it came
+ * from, the class session, the current version's title and the approved audience. Only rows that
+ * passed the eligibility check above carry sources, so stale rows stay content-free.
+ */
+async function inboxContext<T extends Pick<Draft, 'id' | 'sessionId' | 'sources' | 'revision' | 'reviewState'>>(ctx: AppContext, actor: Actor, rows: T[]) {
+  if (!rows.length) return [];
+  const ids = rows.map((r) => r.id);
+  const eventIds = [...new Set(rows.flatMap((r) => r.sources.map((s) => s.eventId)))];
+  const [revisions, publications, sessions, sourceRows] = await Promise.all([
+    ctx.db.select({ draftId: artifactRevisions.draftId, revision: artifactRevisions.revision, content: artifactRevisions.content }).from(artifactRevisions).where(inArray(artifactRevisions.draftId, ids)),
+    ctx.db.select({ draftId: artifactPublications.draftId, revision: artifactPublications.revision, audience: artifactPublications.audience, approvedAt: artifactPublications.approvedAt }).from(artifactPublications).where(inArray(artifactPublications.draftId, ids)),
+    ctx.db.select({ id: classSessions.id, date: classSessions.date, topic: classSessions.topic }).from(classSessions).where(inArray(classSessions.id, [...new Set(rows.map((r) => r.sessionId))])),
+    eventIds.length
+      ? ctx.db.select({ eventId: eventRevisions.eventId, revision: eventRevisions.revision, kind: sql<string>`${eventRevisions.observation}->>'kind'`, studentId: students.id, firstName: students.firstName, lastName: students.lastName }).from(eventRevisions)
+          .innerJoin(learnerLinks, eq(learnerLinks.learnerKey, eventRevisions.learnerKey)).innerJoin(students, eq(students.id, learnerLinks.studentId))
+          .where(inArray(eventRevisions.eventId, eventIds))
+      : Promise.resolve([]),
+  ]);
+  if (sourceRows.length) await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'plane.join', targetType: 'classroom_draft', metadata: { purpose: 'draft_inbox', sourceCount: sourceRows.length } });
+  return rows.map((row) => {
+    const sources = row.sources.flatMap((s) => sourceRows.filter((e) => e.eventId === s.eventId && e.revision === s.revision));
+    // A stale draft's former content stays hidden, title included.
+    const content = row.reviewState === 'stale' ? undefined : revisions.find((r) => r.draftId === row.id && r.revision === row.revision)?.content as { title?: unknown } | undefined;
+    const session = sessions.find((s) => s.id === row.sessionId);
+    const publication = publications.find((p) => p.draftId === row.id && p.revision === row.revision);
+    return {
+      ...row,
+      title: typeof content?.title === 'string' ? content.title : null,
+      students: [...new Map(sources.map((s) => [s.studentId, { id: s.studentId, displayName: `${s.firstName} ${s.lastName}` }])).values()],
+      evidenceKinds: [...new Set(sources.map((s) => s.kind))],
+      session: session ? { date: session.date, topic: session.topic } : null,
+      approvedAudience: publication?.audience ?? null,
+      approvedAt: publication?.approvedAt ?? null,
+    };
+  });
 }
 export async function readArtifact(ctx: AppContext, actor: Actor, id: string, auditReads = true) {
   const draft = await draftFor(ctx, actor, id);
@@ -111,7 +154,8 @@ export async function readArtifact(ctx: AppContext, actor: Actor, id: string, au
   const approverIds = [...new Set(publications.map((p) => p.approvedBy))];
   const approvers = approverIds.length ? await ctx.db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, approverIds)) : [];
   if (auditReads) await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'plane.join', targetType: 'classroom_draft', targetId: id, metadata: { sourceCount: sourceContext.length } });
-  return { draft, revisions, publications: publications.map((p) => ({ ...p, portalShared: shares.some((s) => s.publicationId === p.id && !s.revokedAt), approverName: approvers.find((u) => u.id === p.approvedBy)?.displayName ?? 'Educator' })), evidence: (await payloadFor(ctx.db, ctx, actor, draft)).evidence, sourceContext };
+  const template = (TEMPLATE_KINDS as readonly string[]).includes(draft.kind) ? { validation: await templateValidation(ctx.db, draft.schoolId, draft.kind) } : null;
+  return { draft, revisions, publications: publications.map((p) => ({ ...p, portalShared: shares.some((s) => s.publicationId === p.id && !s.revokedAt), approverName: approvers.find((u) => u.id === p.approvedBy)?.displayName ?? 'Educator' })), evidence: (await payloadFor(ctx.db, ctx, actor, draft)).evidence, sourceContext, template };
 }
 export async function retryArtifact(ctx: AppContext, actor: Actor, id: string) {
   const draft = await draftFor(ctx, actor, id);
@@ -214,7 +258,13 @@ export async function exportArtifact(ctx: AppContext, actor: Actor, id: string) 
   const publication = result.publications.find((p) => p.revision === result.draft.revision)!;
   const content = result.revisions.find((r) => r.revision === result.draft.revision)!.content;
   await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'artifact.export', targetType: 'classroom_draft', targetId: id, metadata: { revision: result.draft.revision, audience: publication.audience } });
-  return { content, publication, sources: result.draft.sources, sourceContext: result.sourceContext, delivery: 'not_sent', templateStatus: ['sst_report', 'mtss_report', 'fba_observations'].includes(result.draft.kind) ? 'synthetic_template_pending_educator_validation' : null };
+  const [session] = await ctx.db.select({ date: classSessions.date, topic: classSessions.topic, sectionName: classSections.name }).from(classSessions).innerJoin(classSections, eq(classSections.id, classSessions.sectionId)).where(eq(classSessions.id, result.draft.sessionId));
+  return {
+    kind: result.draft.kind, content, publication, sources: result.draft.sources, sourceContext: result.sourceContext, evidence: result.evidence, session: session ?? null, delivery: 'not_sent',
+    template: result.template,
+    // Kept for older clients: a report whose template no educator has validated yet.
+    templateStatus: result.template && !result.template.validation ? 'template_pending_educator_validation' : null,
+  };
 }
 
 /** Portal sharing is a distinct, explicit action after exact-audience approval. */
@@ -231,4 +281,21 @@ export async function shareArtifact(ctx: AppContext, actor: Actor, id: string, e
     await audit(tx, { actorUserId: actor.userId, actorRole: 'teacher', action: 'artifact.share', targetType: 'classroom_draft', targetId: id, metadata: { revision: expectedRevision, audience: publication.audience, portalShared: shared, externalDelivery: 'not_sent' } });
     return { portalShared: shared, externalDelivery: 'not_sent' };
   });
+}
+
+/**
+ * Bulk Teacher Confirm: each item names its exact version, and each is decided through the same
+ * single-item path (same checks, same audit). Approval here is teacher-only; choosing a student or
+ * family audience stays an individual decision. One failure does not undo the others.
+ */
+export async function bulkDecide(ctx: AppContext, actor: Actor, decision: 'approve' | 'defer' | 'discard', items: Array<{ id: string; expectedRevision: number }>) {
+  const results = [];
+  for (const item of items) {
+    try {
+      if (decision === 'approve') await approveArtifact(ctx, actor, item.id, item.expectedRevision, 'teacher');
+      else await decideArtifact(ctx, actor, item.id, item.expectedRevision, decision, decision === 'defer' ? new Date(ctx.now().getTime() + 86400000) : undefined);
+      results.push({ id: item.id, ok: true as const });
+    } catch (e) { results.push({ id: item.id, ok: false as const, error: e instanceof Error ? e.message : 'Could not decide' }); }
+  }
+  return { results };
 }

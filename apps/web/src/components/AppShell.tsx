@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth';
 import { applyTheme, resolveTheme, storedTheme, type Theme } from '../lib/theme';
 import { Badge, Button, Dialog, Kbd, PageTransition, SheetContent, Tooltip, cn } from './ui';
 import { CommandPalette } from './CommandPalette';
+import { Brand } from './Brand';
 
 export type Surface = 'teacher' | 'support' | 'student' | 'family' | 'admin';
 
@@ -31,16 +32,19 @@ const NAV: Record<Surface, NavItem[]> = {
     { to: '/support', label: 'My students', icon: Users, end: true },
     { to: '/support/patterns', label: 'Support queue', icon: Sparkles, badgeKey: 'patterns' },
     { to: '/support/reviews', label: 'Reviews', icon: ClipboardList, badgeKey: 'reviews' },
+    { to: '/support/report-templates', label: 'Report templates', short: 'Templates', icon: BookOpen },
   ],
-  student: [{ to: '/student', label: 'My goals', icon: Heart, end: true }],
-  family: [{ to: '/family', label: 'My child', icon: Heart, end: true }],
+  student: [{ to: '/student', label: 'My Pulse', icon: Heart, end: true }],
+  family: [{ to: '/family', label: 'Family Pulse', icon: Heart, end: true }],
   admin: [
     { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: '/admin/insights', label: 'Pulsera Insights', short: 'Insights', icon: BarChart3 },
     { to: '/admin/catalog', label: 'Pattern catalog', icon: Activity },
     { to: '/admin/equity', label: 'Equity', icon: BarChart3 },
     { to: '/admin/prompts', label: 'Prompts & evals', icon: Sparkles },
     { to: '/admin/people', label: 'People & access', icon: Users },
     { to: '/admin/structure', label: 'School structure', icon: Settings2 },
+    { to: '/admin/report-templates', label: 'Report templates', icon: BookOpen },
     { to: '/admin/audit', label: 'Audit log', icon: ShieldCheck },
   ],
 };
@@ -74,17 +78,6 @@ function ThemeToggle() {
         {resolved === 'dark' ? <Sun /> : <Moon />}
       </Button>
     </Tooltip>
-  );
-}
-
-function Brand({ compact }: { compact?: boolean }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span className="relative inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
-        <Activity className="size-4" />
-      </span>
-      {!compact && <span className="text-[15px] font-bold tracking-tight">Pulsera</span>}
-    </div>
   );
 }
 

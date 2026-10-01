@@ -113,6 +113,48 @@
       "when": 1790779150304,
       "tag": "0015_pulsera_job_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790871590905,
+      "tag": "0016_pulsera_on_by_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790873413673,
+      "tag": "0017_teacher_capture_vocabulary",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790874037190,
+      "tag": "0018_family_visibility_and_wellbeing",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790875211164,
+      "tag": "0019_report_template_validations",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790875902695,
+      "tag": "0020_school_retention_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790876689574,
+      "tag": "0021_voice_approvals",
+      "breakpoints": true
     }
   ]
 }

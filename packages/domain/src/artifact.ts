@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ClassroomObservation } from './classroom';
 
-export const ARTIFACT_KINDS = ['abc', 'positive_note', 'parent_message', 'do_now', 'reteach', 'small_group', 'sst_report', 'mtss_report', 'fba_observations', 'guide_explain', 'guide_adjust', 'guide_next_step'] as const;
+export const ARTIFACT_KINDS = ['abc', 'positive_note', 'parent_message', 'do_now', 'reteach', 'small_group', 'sst_report', 'mtss_report', 'fba_observations', 'guide_explain', 'guide_adjust', 'guide_next_step', 'support_recommendation'] as const;
 export const ArtifactKind = z.enum(ARTIFACT_KINDS);
 export type ArtifactKind = z.infer<typeof ArtifactKind>;
 const short = z.string().trim().min(1).max(500);
@@ -22,9 +22,11 @@ const guide = { title: short, sourceNumbers: sources, evidenceSummary: z.array(z
 export const GuideExplainArtifact = z.object({ kind: z.literal('guide_explain'), ...guide }).strict();
 export const GuideAdjustArtifact = z.object({ kind: z.literal('guide_adjust'), ...guide }).strict();
 export const GuideNextArtifact = z.object({ kind: z.literal('guide_next_step'), ...guide }).strict();
-export const ArtifactContent = z.discriminatedUnion('kind', [AbcArtifact, PositiveArtifact, ParentArtifact, DoNowArtifact, ReteachArtifact, SmallGroupArtifact, SstArtifact, MtssArtifact, FbaArtifact, GuideExplainArtifact, GuideAdjustArtifact, GuideNextArtifact]);
+/** Low-intensity classroom options for the teacher to consider, and how to let the student choose among them. */
+export const SupportRecommendationArtifact = z.object({ kind: z.literal('support_recommendation'), title: short, sourceNumbers: sources, evidenceSummary: guide.evidenceSummary, options: z.array(short).min(2).max(4), involveStudent: short, limitations: prose }).strict();
+export const ArtifactContent = z.discriminatedUnion('kind', [AbcArtifact, PositiveArtifact, ParentArtifact, DoNowArtifact, ReteachArtifact, SmallGroupArtifact, SstArtifact, MtssArtifact, FbaArtifact, GuideExplainArtifact, GuideAdjustArtifact, GuideNextArtifact, SupportRecommendationArtifact]);
 export type ArtifactContent = z.infer<typeof ArtifactContent>;
-export const ARTIFACT_SCHEMAS = { abc: AbcArtifact, positive_note: PositiveArtifact, parent_message: ParentArtifact, do_now: DoNowArtifact, reteach: ReteachArtifact, small_group: SmallGroupArtifact, sst_report: SstArtifact, mtss_report: MtssArtifact, fba_observations: FbaArtifact, guide_explain: GuideExplainArtifact, guide_adjust: GuideAdjustArtifact, guide_next_step: GuideNextArtifact };
+export const ARTIFACT_SCHEMAS = { abc: AbcArtifact, positive_note: PositiveArtifact, parent_message: ParentArtifact, do_now: DoNowArtifact, reteach: ReteachArtifact, small_group: SmallGroupArtifact, sst_report: SstArtifact, mtss_report: MtssArtifact, fba_observations: FbaArtifact, guide_explain: GuideExplainArtifact, guide_adjust: GuideAdjustArtifact, guide_next_step: GuideNextArtifact, support_recommendation: SupportRecommendationArtifact };
 /** Lossless observation text for evidence packets; null is explicitly different from zero. */
 export function classroomEvidenceText(observation: z.infer<typeof ClassroomObservation>): string {
   return Object.entries(observation).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}: ${value === null ? 'Not recorded' : value === '' ? 'Not recorded' : String(value)}`).join('; ');

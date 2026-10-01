@@ -20,6 +20,7 @@ export interface AiEnv {
   OPENAI_CLASSIFIER_MODEL?: string;
   OPENAI_CLASSIFIER_REASONING_EFFORT?: string;
   OPENAI_MAX_OUTPUT_TOKENS?: string;
+  OPENAI_TRANSCRIBE_MODEL?: string;
   OPENAI_ZERO_RETENTION?: string;
   OPENAI_REGION?: string;
   MOCK_SCENARIO?: string;
@@ -42,6 +43,8 @@ export interface AiConfig {
   classifierModel: string;
   classifierReasoningEffort: ReasoningEffort;
   maxOutputTokens: number;
+  /** Speech-to-text model for approved voice notes (guide §E). */
+  transcribeModel: string;
   posture: { zeroRetention: boolean; region: string };
 }
 
@@ -59,6 +62,7 @@ export function aiConfigFromEnv(env: AiEnv = process.env as AiEnv): AiConfig {
     classifierModel: env.OPENAI_CLASSIFIER_MODEL?.trim() || model,
     classifierReasoningEffort: effort(env.OPENAI_CLASSIFIER_REASONING_EFFORT, DEFAULT_CLASSIFIER_EFFORT),
     maxOutputTokens: Number(env.OPENAI_MAX_OUTPUT_TOKENS) > 0 ? Number(env.OPENAI_MAX_OUTPUT_TOKENS) : 8000,
+    transcribeModel: env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-4o-mini-transcribe',
     posture: { zeroRetention: env.OPENAI_ZERO_RETENTION !== 'false', region: env.OPENAI_REGION?.trim() || 'us' },
   };
 }

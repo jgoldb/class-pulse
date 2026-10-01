@@ -9,6 +9,7 @@ import { TeacherShell } from './pages/teacher/TeacherShell';
 import { TeacherToday } from './pages/teacher/Today';
 import { ClassPulse } from './pages/teacher/ClassPulse';
 import { ClassroomDrafts } from './pages/teacher/ClassroomDrafts';
+import { Tomorrow } from './pages/teacher/Tomorrow';
 import { CasesList } from './pages/teacher/CasesList';
 import { MyClass } from './pages/teacher/MyClass';
 import { IntakePage } from './pages/teacher/Intake';
@@ -33,6 +34,19 @@ import { AdminPrompts } from './pages/admin/Prompts';
 import { AdminPeople } from './pages/admin/People';
 import { AdminStructure } from './pages/admin/Structure';
 import { AdminAudit } from './pages/admin/Audit';
+import { ReportPrint } from './pages/teacher/ReportPrint';
+import { PulseInsights } from './components/PulseInsights';
+import { ReportTemplates } from './components/ReportTemplates';
+import { PageHeader } from './components/AppShell';
+
+function TemplatesPage() {
+  return (
+    <div>
+      <PageHeader eyebrow="Pulsera Reports™" title="Report templates" description="A qualified educator validates each template for your school before pilot use. Until then, reports say they are for discussion only." />
+      <ReportTemplates />
+    </div>
+  );
+}
 
 function Loading() {
   return (
@@ -77,7 +91,7 @@ export function App() {
         <Route index element={<ClassPulse />} />
         <Route path="support" element={<TeacherToday />} />
         <Route path="drafts" element={<ClassroomDrafts />} />
-        <Route path="tomorrow" element={<ClassroomDrafts tomorrow />} />
+        <Route path="tomorrow" element={<Tomorrow />} />
         <Route path="cases" element={<CasesList />} />
         <Route path="class" element={<MyClass />} />
         <Route path="students" element={<PulseProfiles role="teacher" />} />
@@ -91,6 +105,7 @@ export function App() {
         <Route path="reviews" element={<ReviewsList />} />
         <Route path="reviews/:id" element={<ReviewDecision />} />
         <Route path="requests" element={<Requests />} />
+        <Route path="reports/:id" element={<ReportPrint />} />
       </Route>
 
       <Route path="/support" element={<RequireRole roles={['support_professional']}><TeacherShell surface="support" /></RequireRole>}>
@@ -106,6 +121,7 @@ export function App() {
         <Route path="reviews" element={<ReviewsList />} />
         <Route path="reviews/:id" element={<ReviewDecision />} />
         <Route path="requests" element={<Requests />} />
+        <Route path="report-templates" element={<TemplatesPage />} />
       </Route>
 
       <Route path="/student" element={<RequireRole roles={['student']}><StudentShell /></RequireRole>}>
@@ -118,12 +134,14 @@ export function App() {
 
       <Route path="/admin" element={<RequireRole roles={['administrator']}><AdminShell /></RequireRole>}>
         <Route index element={<AdminOverview />} />
+        <Route path="insights" element={<div><PageHeader eyebrow="Pulsera Insights™" title="School-wide classroom insights" description="Aggregate trends that help educators plan support." /><PulseInsights /></div>} />
         <Route path="catalog" element={<AdminCatalog />} />
         <Route path="equity" element={<AdminEquity />} />
         <Route path="prompts" element={<AdminPrompts />} />
         <Route path="people" element={<AdminPeople />} />
         <Route path="structure" element={<AdminStructure />} />
         <Route path="audit" element={<AdminAudit />} />
+        <Route path="report-templates" element={<TemplatesPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

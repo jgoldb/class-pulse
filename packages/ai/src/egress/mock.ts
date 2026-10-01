@@ -6,6 +6,7 @@
  *
  * It is NOT a substitute for the model in production: AI_PROVIDER=openai.
  */
+import { ProviderError } from './provider';
 import type { IntakeFields, InterventionProposal, PlanContent, ReviewNarrative, Baseline, GoalContent, StrategyContent } from '@class-pulse/domain';
 import { classroomEvidenceText } from '@class-pulse/domain';
 import type { ModelProvider, StructuredRequest, StructuredResponse } from './provider';
@@ -17,6 +18,12 @@ import { RUBRIC_CRITERIA } from '../schema';
 export type MockScenario = 'default' | 'v1_failure' | 'provider_error' | 'invalid_json';
 
 export class MockProvider implements ModelProvider {
+  /** Test double only (NODE_ENV=test): a fixed, name-free transcript. */
+  async transcribe(req: import('./provider').TranscriptionRequest): Promise<import('./provider').TranscriptionResponse> {
+    if (!req.audio.length) throw new ProviderError('Empty audio', false);
+    return { text: 'Explained the first step to a partner, then finished the next problem.', model: `mock:${req.model}`, providerRequestId: null };
+  }
+
   readonly name = 'mock';
   constructor(private readonly scenario: MockScenario = 'default') {}
 
@@ -36,6 +43,7 @@ export class MockProvider implements ModelProvider {
         const observed = p.evidence.map((e) => classroomEvidenceText(e.observation));
         const limitations = 'Limited classroom evidence. Proposed actions require educator review; missing information remains unrecorded.';
         if (['sst_report', 'mtss_report', 'fba_observations'].includes(p.kind)) return wrap({ ...all, purpose: 'Evidence for educator discussion', observations: observed, questionsForTeam: ['What additional observations should the team collect?'], limitations }, req);
+        if (p.kind === 'support_recommendation') return wrap({ ...all, evidenceSummary: observed, options: ['Check in briefly at the start of independent work.', 'Offer a worked example with the first step completed.'], involveStudent: 'Ask the learner which of the two options they would like to try first.', limitations }, req);
         if (p.kind.startsWith('guide_')) return wrap({ ...all, evidenceSummary: observed, proposedNextStep: 'Offer a worked example, then ask the learner to explain one step. Record the response for review.', limitations }, req);
         if (p.kind === 'small_group') return wrap({ ...all, objective: p.objective || 'Practise the recorded concept', instructions: ['Compare two worked examples, then explain the difference.'], checkForUnderstanding: 'Try one new example independently.', rationale: 'Temporary practice opportunity based on selected instructional observations.', limitations }, req);
         return wrap({ ...common, objective: p.objective || 'Practise the lesson topic', instructions: ['Try one example and explain your thinking to a partner.'], checkForUnderstanding: 'Explain one step in your own words.', limitations: 'Suggested practice; observed evidence does not establish mastery.' }, req);

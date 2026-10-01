@@ -8,6 +8,7 @@ export * from './dialog';
 export * from './tabs';
 export * from './tooltip';
 export * from './dropdown';
+export * from './popover';
 export * from './select';
 export * from './avatar';
 export * from './progress';

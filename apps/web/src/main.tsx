@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { ClerkProvider } from '@clerk/react';
+import { clerkLocalization } from './components/Brand';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import './index.css';
@@ -18,13 +19,13 @@ applyStoredTheme();
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000, refetchOnWindowFocus: true } } });
 
 const clerkAppearance = {
-  variables: { colorPrimary: '#1f8a7a', colorText: '#17201f', borderRadius: '12px', fontFamily: 'Inter, ui-sans-serif, system-ui' },
+  variables: { colorPrimary: '#0a8494', colorText: '#17201f', borderRadius: '12px', fontFamily: 'Inter, ui-sans-serif, system-ui' },
   elements: { card: 'shadow-lg border border-border', formButtonPrimary: 'bg-primary hover:bg-primary-hover text-sm normal-case', footerActionLink: 'text-primary' },
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY} signInUrl="/sign-in" signUpUrl="/sign-up" signInFallbackRedirectUrl="/" signUpFallbackRedirectUrl="/" appearance={clerkAppearance}>
+    <ClerkProvider publishableKey={PUBLISHABLE_KEY} signInUrl="/sign-in" signUpUrl="/sign-up" signInFallbackRedirectUrl="/" signUpFallbackRedirectUrl="/" appearance={clerkAppearance} localization={clerkLocalization}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>

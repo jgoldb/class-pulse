@@ -27,10 +27,13 @@
     "db:generate": "npm run db:generate --workspace apps/api",
     "db:reseed": "node scripts/db.mjs reseed",
     "db:empty": "node scripts/db.mjs empty",
+    "db:backup": "node --import tsx apps/api/src/db/backup.ts backup",
+    "db:restore": "node --import tsx apps/api/src/db/backup.ts restore",
     "seed": "npm run seed --workspace apps/api",
     "deploy": "node scripts/deploy.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@clerk/testing": "^2.2.36",
     "@eslint/js": "^9.30.0",
     "@playwright/test": "^1.63.0",

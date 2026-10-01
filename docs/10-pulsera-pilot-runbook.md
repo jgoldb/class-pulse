@@ -1,6 +1,6 @@
 # Pulsera pilot runbook
 
-Status: synthetic development only, 2026-09-30. This is an engineering procedure and evidence
+Status: synthetic development only, updated 2026-10-01. This is an engineering procedure and evidence
 register, not school approval. No teacher champion, school, audio provider or school-policy
 sign-offs have been supplied. Plan 09 remains incomplete until its delivery and evidence gates
 are satisfied. Nothing in this document authorizes entering real student data.
@@ -15,16 +15,16 @@ for school documents; do not paste their contents into audit metadata or model p
 |---|---|---|
 | Engineering defaults Q1–Q3 | Product owner authorized synthetic defaults on 2026-09-30 | School data lead approves record classes, scopes, retention, deletion and portability |
 | Pilot scope Q5 | No school/teacher supplied | Teacher champion, school owner, grades/class, devices, dates and support contact |
-| Audio boundary Q4 | Disabled; no raw audio stored or uploaded | Named provider, approved processing boundary/retention, then voice implementation and failure/access tests |
-| Automated regression | 172 tests; six workspace typechecks; lint; production web build | Re-run against the release commit; resolve material regressions |
-| UI walkthrough | Six isolated walkthroughs; live desktop/phone screens, existing teacher loop, and classroom-to-family-to-plan flow passed across focused reruns in the designated synthetic environment | Clean release-build regression; representative browser/device and assistive-technology checks |
-| Classroom model quality | V3 passed 15/15 live cases and UI evaluation/promotion; reports in `docs/evidence/`; new deployments start as draft | Selected deployment's passing evaluation/promotion and teacher usefulness review |
-| Records lifecycle | Pending content expiry, correction lineage and artifact export implemented | Approved-record deletion/portability implementation after school policy; test effects on derivatives/backups |
+| Audio boundary Q4 | Voice implemented behind a recorded school approval (Administration → School structure → Voice capture); off until recorded. Audio is never stored; egress log keeps size and hash only. Live end-to-end transcription verified 2026-10-01 with a synthetic recording, approval withdrawn afterwards | The school's named official approves the provider and policy; that approval is recorded in the app |
+| Automated regression | 189 tests (16 files) including the incident drill and backup round trip; six workspace typechecks; lint | Re-run against the release commit; resolve material regressions |
+| UI walkthrough | Twelve isolated walkthroughs at desktop, tablet and phone, each with an axe WCAG 2 A/AA scan (no serious or critical findings); live navigation and classroom-to-family-to-plan flow on a fresh seed | Representative device and screen-reader sessions with real users |
+| Classroom model quality | V4 passed 17/17 live on suite classroom.v3 (an earlier run 16/17); reports in `docs/evidence/`. The registry activates it on boot where no administrator-chosen version is active | Teacher usefulness review |
+| Records lifecycle | Per-school retention windows (pending text, memory window); learner record export (JSON) and erasure on request, with derived drafts removed and counts-only audit; tested | School data lead sets the windows and approves the erasure procedure |
 | Access review | Automated role/section/learner and revoked-access tests | Named school reviewer signs actual membership/guardian links and approval roles |
-| Recovery | Durable queue tests and additive migration tests | Restore drill and recovery timing in a separate synthetic database |
-| Incident response | Procedure below | Named incident owner, school contacts and completed tabletop exercise |
-| Provider review | Existing text gate; audio unavailable | School-approved service/subprocessor inventory and account configuration evidence |
-| Educator validation | Synthetic templates and deterministic rules | Qualified reviewer signs each report template, pattern threshold and ongoing catalog owner |
+| Recovery | Logical backup/restore (`npm run db:backup` / `db:restore`) with a tested round trip; restore drill 2026-10-01 (local → emptied e2e branch, 855 rows, spot counts identical) | Agreed RPO/RTO and a drill against the production provider's point-in-time recovery |
+| Incident response | Procedure below; automated drill (`apps/api/src/incident-drill.test.ts`) rehearses containment, evidence preservation and reconstruction | Named incident owner, school contacts and a tabletop exercise with them |
+| Provider review | Text and audio both pass the egress gate and log; audio approval names provider and policy | School-approved subprocessor inventory and account configuration evidence |
+| Educator validation | In-app template validation per school by a support professional or administrator; reports show the status | The school's qualified reviewer validates each template and pattern threshold |
 | Roster/integration | CSV preview/confirmation and identity-preservation tests | Pilot roster reconciliation; school chooses and validates one further integration |
 | Pilot value | No measured results | Baseline and post-use workload, correction burden, usefulness, cost and teacher willingness |
 
@@ -43,13 +43,14 @@ use requires a separate reviewed release after the outstanding policies and impl
 3. In the designated live synthetic environment, run the existing full browser suite. Walk the
    new teacher, student and family workflows with real authentication and API responses too;
    isolated component passes do not establish this integration.
-4. Run `classroom_draft.v3` evals through Administration → Prompts with the intended provider/model.
-   Inspect failed cases, re-run after fixes, then promote the version through the gated action.
+4. The evaluated classroom prompt (`classroom_draft.v4`) is activated by the registry on boot. To
+   change it, add a new version, run `npm run evals:classroom` with `EVAL_PROMPT_VERSION`, check
+   in the passing report, then mark it active in the registry or promote it in Administration.
    Never edit immutable released prompt bodies; introduce a new version instead.
 5. Reconcile migration counts and identity links before/after: student IDs, case IDs, authors,
    timestamps and legacy approval counts must be preserved. Existing learners must not acquire
    synthetic historical approvals. Confirm a second backfill creates no duplicate learner links.
-6. Enable Class Pulse in School structure for the synthetic workspace and set the school timezone.
+6. Class Pulse is on for synthetic workspaces; set the school timezone in School structure.
    Capture without a case; confirm and correct attribution; approve, explicitly share, then remove
    a communication from a portal; prepare Tomorrow; contribute from two linked children; approve
    a sourced plan revision; withdraw the source and verify its dependent review is blocked.
@@ -91,6 +92,17 @@ the chosen service and account settings when executing the drill.
 5. Record actual restored cutoff, recovery duration, mismatches and reviewer decision. Do not
    declare backup readiness from a successful connection or application startup alone.
 
+### Logical backup and restore (2026-10-01 drill)
+
+`npm run db:backup -- --target <local|e2e>` writes every application table to `backups/` as JSON
+(gitignored: it contains learner data). `npm run db:restore -- --target <local|e2e> --in <file> --yes`
+loads it into an empty, migrated database in foreign-key order and refuses a non-empty one. The
+round trip is covered by `apps/api/src/backup.test.ts`. Drill on 2026-10-01: backed up the local
+database (53 tables, 855 rows), emptied the e2e branch, restored, and compared students, events,
+drafts, plans and audit rows directly on both branches; all matched. The production deployment's
+provider point-in-time recovery remains the primary backup; drill it separately with agreed
+recovery objectives.
+
 ## Failure and incident response
 
 Assign a deployment operator, school incident lead and backup contact before pilot use. Store
@@ -117,6 +129,25 @@ files cannot be recalled by the application; the school must define external cor
 before relying on exported records. Urgent help uses the separate help inbox and school urgent
 procedures; it is not a continuously monitored emergency service.
 
+### Automated incident drill
+
+`apps/api/src/incident-drill.test.ts` rehearses three steps on every test run: containment (model
+switched off: no egress, capture continues, refused attempts still logged — including voice),
+preservation (audit and egress rows reject UPDATE and DELETE at the database), and
+reconstruction (an administrator retrieves the incident window from the audit trail, which holds
+identifiers and counts, not classroom content). A tabletop with the school's incident lead is
+still required before pilot use.
+
+### Voice capture approval
+
+Voice stays off until an administrator records the school official's approval: provider, the
+official's name and role, and the policy reference. The record and its withdrawal are audited.
+While approved, a teacher records at most a minute by deliberate push-to-talk with a visible
+recording state and cancel; audio is held only in memory for the transcription call; the egress
+log stores the audio size, type and hash, never the audio; the transcript returns for editing, the
+teacher selects the student, and saving uses the normal observation path (source: reviewed
+transcript). Names in transcripts are flagged and rejected on save. No speaker identification.
+
 ## School record policy worksheet
 
 Before implementing operational deletion/portability, the school data lead must specify for each
@@ -126,12 +157,16 @@ Cover identified roster/links; sessions and seating snapshots; confirmed and pen
 artifact revisions/publications/shares; contributions/responses; help requests; follow-ups;
 support plans/goals/strategies; projections/candidates/reviews; provider payloads; and audit/jobs.
 
-Current engineering defaults erase unapproved classroom text after 30 days, retain exact new
-classroom provider payloads separately for 30 days, and retrieve current confirmed history for
-120 days. Contribution acceptance extends content expiry by 120 days, while memory still limits
-submission age to 120 days. Approved records, help content and content-free lineage await the
-school policy. Artifact export is not a complete learner portability export. Do not advertise
-complete deletion, portability or approved operational retention from the current cleanup job.
+Each school sets two windows in School structure: how long unapproved text is kept (default 30
+days; drafts, pending observations and contributions expire at it) and the classroom-memory window
+(default 120 days; older approved history is not retrieved for drafts, evidence or profiles).
+Provider payloads are kept 30 days. Learner records → Export produces a JSON record of one
+learner's confirmed observations, attributed contributions and approved artifacts; Erase removes
+that learner's classroom observations, contributions, help requests, seat positions and drafts
+derived from their observations (including shared group drafts), retires projected case signals
+and keeps a counts-only audit entry. Support-plan records and backups follow their own
+retention; a restore must re-apply erasures recorded after the backup's cutoff. The school data
+lead approves these settings and procedures before operational use.
 
 ## Pilot measurement and usability worksheet
 
@@ -146,8 +181,11 @@ Proposed targets from plan 09 are approximately three seconds for a routine tap 
 of ordinary draft review per class; these are not measured outcomes. Agree usefulness, cost and
 time-saved thresholds before evaluation. Include keyboard-only and screen-reader users, focus
 order/dialog dismissal/error announcements, phone touch targets, browser zoom, high contrast,
-multiple sections/children, AI-off and interrupted-network scenarios. The current browser suite
-checks keyboard selection and layout; it does not establish assistive-technology conformance.
+multiple sections/children, AI-off and interrupted-network scenarios. The isolated browser suite
+runs axe WCAG 2 A/AA scans on Class Pulse, Drafts, Tomorrow, Students, My Pulse and Family Pulse at
+desktop, tablet and phone sizes and fails on serious or critical findings; Class Pulse supports
+keyboard capture (letters, arrows, Esc, ?). Automated scans do not replace sessions with
+screen-reader users.
 
 Record teacher willingness to continue and review burden from contributions/help separately.
 Have a qualified educator validate each report template and each pattern threshold. Choose the

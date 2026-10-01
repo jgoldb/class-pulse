@@ -3,18 +3,23 @@ import { newId } from '@class-pulse/domain';
 import type { AppContext } from '../context';
 import { artifactPublications, artifactRevisions, classSections, classroomDrafts, classroomEgressPayloads, classroomEvents, classroomPlanOrigins, eventRevisions, expiredClassroomRequests, generationRuns, planDrafts } from '../db/schema';
 import { audit } from './audit';
+import { daysAgo, retentionFor } from './learner-records';
 
 /** Synthetic defaults only. Keep publication/audit lineage; erase expired unapproved text. */
 export async function expirePendingClassroomContent(ctx: AppContext) {
   await ctx.db.delete(classroomEgressPayloads).where(lt(classroomEgressPayloads.expiresAt, ctx.now()));
-  const cutoff = new Date(ctx.now().getTime() - 30 * 86400000);
+  // The shortest permitted window bounds the candidate scan; each event then uses its own school's policy.
+  const cutoff = daysAgo(ctx.now(), 1);
   const expired = await ctx.db.select({ eventId: eventRevisions.eventId }).from(eventRevisions).where(and(isNull(eventRevisions.confirmedAt), lt(eventRevisions.createdAt, cutoff)));
-  const pending = expired.length ? await ctx.db.select().from(classroomEvents).where(inArray(classroomEvents.id, [...new Set(expired.map((r) => r.eventId))])) : [];
+  const candidates = expired.length ? await ctx.db.select().from(classroomEvents).where(inArray(classroomEvents.id, [...new Set(expired.map((r) => r.eventId))])) : [];
+  const policies = new Map<string, Date>();
+  for (const e of candidates) if (!policies.has(e.schoolId)) policies.set(e.schoolId, daysAgo(ctx.now(), (await retentionFor(ctx.db, e.schoolId)).pendingDays));
+  const pending = candidates;
   let eventsExpired = 0, draftsExpired = 0;
   for (const event of pending) await ctx.db.transaction(async (tx) => {
     await tx.select().from(classSections).where(eq(classSections.id, event.sectionId)).for('update');
     const [current] = await tx.select().from(classroomEvents).where(eq(classroomEvents.id, event.id)).for('update');
-    const erased = await tx.select().from(eventRevisions).where(and(eq(eventRevisions.eventId, event.id), isNull(eventRevisions.confirmedAt), lt(eventRevisions.createdAt, cutoff)));
+    const erased = await tx.select().from(eventRevisions).where(and(eq(eventRevisions.eventId, event.id), isNull(eventRevisions.confirmedAt), lt(eventRevisions.createdAt, policies.get(event.schoolId)!)));
     if (!erased.length) return;
     if (erased.some((r) => r.revision === current!.revision)) await tx.update(classroomEvents).set({ status: 'withdrawn' }).where(eq(classroomEvents.id, event.id));
     if (erased.length) await tx.insert(expiredClassroomRequests).values(erased.map((r) => ({ id: newId(), kind: 'event' as const, createdBy: r.createdBy, requestId: r.requestId }))).onConflictDoNothing();
@@ -40,7 +45,7 @@ export async function expirePendingClassroomContent(ctx: AppContext) {
     await audit(tx, { actorUserId: null, actorRole: null, action: 'classroom.expire', targetType: 'classroom_draft', targetId: draft.id, metadata: { revision: current!.revision } });
     draftsExpired++;
   });
-  const origins = await ctx.db.select().from(classroomPlanOrigins).where(lt(classroomPlanOrigins.createdAt, cutoff));
+  const origins = await ctx.db.select().from(classroomPlanOrigins).where(lt(classroomPlanOrigins.createdAt, daysAgo(ctx.now(), 30)));
   for (const origin of origins) await ctx.db.transaction(async (tx) => {
     await tx.select().from(classSections).where(eq(classSections.id, origin.sectionId)).for('update');
     const [draft] = await tx.select().from(planDrafts).where(eq(planDrafts.id, origin.draftId)).for('update');

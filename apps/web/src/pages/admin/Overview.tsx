@@ -1,12 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { PartyPopper, Users } from 'lucide-react';
+import { PartyPopper, Users, BarChart3 } from 'lucide-react';
 import { PageHeader } from '../../components/AppShell';
 import { Badge, Button, Callout, Card, CardBody, CardHeader, Empty, PageSkeleton, Stagger, StaggerItem, Stat } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { PulseInsights } from '../../components/PulseInsights';
 
 interface Cells {
   cells: Array<{ key: string; count: number | null; suppressed: boolean; reason: string | null }>;
@@ -85,7 +84,7 @@ export function AdminOverview() {
         <Stat label="Observed improvement during interventions" value={t.interventionEffectiveness.improvingShare ?? '—'} hint={t.interventionEffectiveness.decidedCycles === null ? 'below minimum cell size' : `${t.interventionEffectiveness.decidedCycles} decided review cycles; association does not establish causation`} />
         <Stat label="Median generation latency" value={t.generation.medianLatencyMs !== null ? `${(t.generation.medianLatencyMs / 1000).toFixed(1)}s` : '—'} hint="per model call, including the second-model check" />
       </div>
-      <PulseInsights />
+      <Link to="/admin/insights" className="mt-4 flex items-center gap-3 rounded-lg border border-border bg-elevated p-4 text-sm shadow-xs hover:border-border-strong"><span className="inline-flex size-9 items-center justify-center rounded-lg bg-brand text-white"><BarChart3 className="size-4" /></span><span className="flex-1"><span className="block font-semibold">Pulsera Insights™</span><span className="text-muted">Participation patterns, check-in coverage, follow-up needs, documentation and instructional trends — aggregate and suppressed.</span></span></Link>
       <Card className="mt-4">
         <CardHeader title="Where to go next" />
         <CardBody className="grid gap-2 text-sm sm:grid-cols-2">

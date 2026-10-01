@@ -1,24 +1,30 @@
 import { createHash } from 'node:crypto';
 import { and, desc, eq, gt, inArray } from 'drizzle-orm';
-import { CorrectContribution, RespondContribution, SubmitContribution, newId, type ContributionContent } from '@class-pulse/domain';
+import { CorrectContribution, RespondContribution, SubmitContribution, WELLBEING_KINDS, newId, type ContributionContent } from '@class-pulse/domain';
 import type { Actor, AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../context';
-import { classSections, classroomHelpRequests, classroomPlanOrigins, contributionResponses, contributionRevisions, contributions, expiredClassroomRequests, learnerLinks, plans, roleAssignments, users } from '../db/schema';
+import { classSections, classroomHelpRequests, classroomPlanOrigins, contributionResponses, contributionRevisions, contributions, expiredClassroomRequests, learnerLinks, plans, roleAssignments, schools, users } from '../db/schema';
 import { audit } from './audit';
 import { learnerFor, requirePulse, validateClassroomText } from './pulse';
 import { learnerProfile, profileScope } from './profiles';
 import { buildActor } from './scope';
 import { invalidatePlanRevisionSources } from './classroom-plan-revisions';
 import { rejectExpiredRequest } from './classroom-receipts';
+import { daysAhead, retentionFor } from './learner-records';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 async function recipientFor(ctx: AppContext, sectionId: string, recipientId: string) {
   const [assignment] = await ctx.db.select({ id: roleAssignments.id }).from(roleAssignments).where(and(eq(roleAssignments.userId, recipientId), eq(roleAssignments.sectionId, sectionId), eq(roleAssignments.role, 'teacher'))).limit(1);
   if (!assignment) throw forbidden('Choose a currently assigned teacher');
 }
+export async function wellbeingAllowed(ctx: AppContext, sectionId: string) {
+  const [row] = await ctx.db.select({ allowed: schools.familyWellbeingCollection }).from(classSections).innerJoin(schools, eq(schools.id, classSections.schoolId)).where(eq(classSections.id, sectionId));
+  return !!row?.allowed;
+}
 async function validateContent(ctx: AppContext, actor: Actor, studentId: string, sectionId: string, role: 'student' | 'guardian', content: ContributionContent) {
-  const allowed = role === 'student' ? ['reflection', 'proposal', 'strategy_choice'] : ['family_observation', 'home_strategy', 'homework', 'proposal', 'strategy_choice'];
+  const allowed = role === 'student' ? ['reflection', 'proposal', 'strategy_choice'] : ['family_observation', 'home_strategy', 'homework', 'proposal', 'strategy_choice', ...WELLBEING_KINDS];
   if (!allowed.includes(content.kind)) throw badRequest('This contribution type is not available for this role');
+  if ((WELLBEING_KINDS as readonly string[]).includes(content.kind) && !(await wellbeingAllowed(ctx, sectionId))) throw badRequest('Your school does not collect sleep or mood observations');
   const text = Object.fromEntries(Object.entries(content).filter(([k]) => k !== 'strategyId'));
   await validateClassroomText(ctx.db, sectionId, text);
   if (content.kind === 'strategy_choice') {
@@ -31,6 +37,7 @@ export async function submitContribution(ctx: AppContext, actor: Actor, input: S
   const { section } = await profileScope(ctx, actor, parsed.studentId, parsed.sectionId, parsed.role);
   await recipientFor(ctx, parsed.sectionId, parsed.recipientId);
   await validateContent(ctx, actor, parsed.studentId, parsed.sectionId, parsed.role, parsed.content);
+  if (parsed.role === 'student' && parsed.visibility !== 'teacher') throw badRequest('Student contributions go to the selected teacher');
   const inputHash = hash(parsed);
   return ctx.db.transaction(async (tx) => {
     await tx.select().from(classSections).where(eq(classSections.id, section.id)).for('update');
@@ -39,9 +46,9 @@ export async function submitContribution(ctx: AppContext, actor: Actor, input: S
     if (existing) { if (existing.inputHash !== inputHash) throw conflict('Request ID already used with different content'); return { id: existing.contributionId, revision: existing.revision }; }
     const learnerKey = await learnerFor(tx, actor, section.id, parsed.studentId, parsed.role);
     const id = newId();
-    await tx.insert(contributions).values({ id, learnerKey, sectionId: section.id, schoolId: section.schoolId, createdBy: actor.userId, sourceRole: parsed.role, recipientId: parsed.recipientId, expiresAt: new Date(ctx.now().getTime() + 30 * 86400000) });
+    await tx.insert(contributions).values({ id, learnerKey, sectionId: section.id, schoolId: section.schoolId, createdBy: actor.userId, sourceRole: parsed.role, recipientId: parsed.recipientId, visibility: parsed.visibility, expiresAt: daysAhead(ctx.now(), (await retentionFor(tx, section.schoolId)).pendingDays) });
     await tx.insert(contributionRevisions).values({ id: newId(), contributionId: id, revision: 1, content: parsed.content, createdBy: actor.userId, requestId: parsed.requestId, inputHash });
-    await audit(tx, { actorUserId: actor.userId, actorRole: parsed.role, action: 'contribution.submit', targetType: 'contribution', targetId: id, metadata: { revision: 1, sectionId: section.id, recipientId: parsed.recipientId, kind: parsed.content.kind } });
+    await audit(tx, { actorUserId: actor.userId, actorRole: parsed.role, action: 'contribution.submit', targetType: 'contribution', targetId: id, metadata: { revision: 1, sectionId: section.id, recipientId: parsed.recipientId, kind: parsed.content.kind, visibility: parsed.visibility } });
     return { id, revision: 1 };
   });
 }
@@ -71,10 +78,15 @@ export async function listContributions(ctx: AppContext, actor: Actor, sectionId
   const result = [];
   const approvedRevisions = await ctx.db.select({ sources: classroomPlanOrigins.sources, version: plans.version }).from(classroomPlanOrigins).innerJoin(plans, eq(plans.draftId, classroomPlanOrigins.draftId)).where(and(eq(classroomPlanOrigins.sectionId, sectionId), eq(plans.status, 'active'), eq(plans.sourceReviewNeeded, false)));
   for (const row of rows) {
+    let sharedView = false;
     try { await contributionFor(ctx, actor, row.item.id); }
-    catch { continue; }
+    catch {
+      // A family can share an item with the student; the student sees it, read-only and attributed.
+      if (!studentId || row.item.sourceRole !== 'guardian' || row.item.visibility !== 'teacher_and_student' || row.item.status === 'withdrawn') continue;
+      try { await profileScope(ctx, actor, studentId, sectionId, 'student'); sharedView = true; } catch { continue; }
+    }
     const usedInPlanVersion = row.item.status === 'accepted' ? approvedRevisions.find((p) => p.sources.some((s) => s.kind === 'contribution' && s.id === row.item.id && s.revision === row.item.revision))?.version ?? null : null;
-    result.push({ id: row.item.id, revision: row.item.revision, studentId: row.studentId, sourceRole: row.item.sourceRole, authorName: row.authorName, own: row.item.createdBy === actor.userId, status: row.item.status, content: row.item.status === 'withdrawn' ? null : row.content, response: row.item.response, respondedAt: row.item.respondedAt, createdAt: row.item.createdAt, expiresAt: row.item.expiresAt, usedInPlanVersion });
+    result.push({ id: row.item.id, revision: row.item.revision, studentId: row.studentId, sourceRole: row.item.sourceRole, authorName: row.authorName, own: row.item.createdBy === actor.userId, sharedView, visibility: row.item.visibility, status: row.item.status, content: row.item.status === 'withdrawn' ? null : row.content, response: row.item.response, respondedAt: row.item.respondedAt, createdAt: row.item.createdAt, expiresAt: row.item.expiresAt, usedInPlanVersion });
   }
   await audit(ctx.db, { actorUserId: actor.userId, actorRole: actor.scope.teacherSectionIds.has(sectionId) ? 'teacher' : actor.roles.has('guardian') ? 'guardian' : 'student', action: 'contribution.read', targetType: 'contribution', metadata: { sectionId, count: result.length } });
   return result;

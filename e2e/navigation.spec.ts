@@ -14,9 +14,12 @@ const WALKS: Array<{ as: AccountKey; home: string; links: Array<{ name: RegExp; 
     as: 'teacher',
     home: '/teacher',
     links: [
+      // Class Pulse is the home page; case work (Cases, Patterns, Reviews, Family requests) is
+      // reached from Support.
+      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Cases/, expectText: 'One case per student' },
       { name: /^Students$/, expectText: 'Manage class roster' },
-      { name: /^Drafts$/, expectText: 'Inspect the evidence, edit the wording' },
+      { name: /^Drafts$/, expectText: 'What happened, what Pulsera drafted' },
       { name: /^Tomorrow$/, expectText: 'Tomorrow Ready' },
       { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Patterns/, expectText: 'Pattern queue' },
@@ -24,8 +27,8 @@ const WALKS: Array<{ as: AccountKey; home: string; links: Array<{ name: RegExp; 
       { name: /^Reviews/, expectText: 'Plan reviews' },
       { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Family requests/, expectText: 'Family requests' },
-      { name: /^Class Pulse$/, expectText: /Good (morning|afternoon|evening)/ },
-      { name: /^Cases/, expectText: 'One case per student' },
+      { name: /^Class Pulse$/, expectText: /Seating chart/ },
+      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
     ],
   },
   {

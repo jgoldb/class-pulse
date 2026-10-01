@@ -1,0 +1,2 @@
+ALTER TABLE "working"."contributions" ADD COLUMN "visibility" text DEFAULT 'teacher' NOT NULL;--> statement-breakpoint
+ALTER TABLE "identified"."schools" ADD COLUMN "family_wellbeing_collection" boolean DEFAULT true NOT NULL;

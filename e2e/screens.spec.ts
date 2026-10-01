@@ -6,17 +6,21 @@ import { expect, test, type AccountKey } from './fixtures';
  * e2e/screenshots/<project>/ so a human (or Claude) can look at the product rather than infer it.
  */
 const SCREENS: Array<{ name: string; as: AccountKey | null; path: string; expectText: string | RegExp }> = [
-  { name: '00-landing', as: null, path: '/', expectText: 'Notice what a busy teacher' },
+  { name: '00-landing', as: null, path: '/', expectText: 'Teach naturally' },
   { name: '01-get-started', as: null, path: '/get-started', expectText: 'Choose a plan' },
   { name: '02-sign-in', as: null, path: '/sign-in', expectText: /Sign in|Welcome back/ },
-  { name: '10-teacher-today', as: 'teacher', path: '/teacher', expectText: /Good (morning|afternoon|evening)/ },
+  { name: '10-teacher-class-pulse', as: 'teacher', path: '/teacher', expectText: 'Seating chart' },
+  { name: '16-teacher-drafts', as: 'teacher', path: '/teacher/drafts', expectText: 'What happened, what Pulsera drafted' },
+  { name: '17-teacher-tomorrow', as: 'teacher', path: '/teacher/tomorrow', expectText: 'Tomorrow’s Do Now' },
+  { name: '18-teacher-students', as: 'teacher', path: '/teacher/students', expectText: 'Classroom Memory' },
+  { name: '19-teacher-support', as: 'teacher', path: '/teacher/support', expectText: /Good (morning|afternoon|evening)/ },
   { name: '11-teacher-cases', as: 'teacher', path: '/teacher/cases', expectText: 'Cases' },
   { name: '12-teacher-intake', as: 'teacher', path: '/teacher/intake', expectText: 'New intake' },
   { name: '15-teacher-my-class', as: 'teacher', path: '/teacher/class', expectText: 'Your sections and the students in them' },
   { name: '13-teacher-patterns', as: 'teacher', path: '/teacher/patterns', expectText: 'Pattern queue' },
   { name: '14-teacher-reviews', as: 'teacher', path: '/teacher/reviews', expectText: 'Plan reviews' },
   { name: '20-student', as: 'student', path: '/student', expectText: 'Hi Avery' },
-  { name: '30-family', as: 'guardian', path: '/family', expectText: 'About this plan' },
+  { name: '30-family', as: 'guardian', path: '/family', expectText: 'Strengths and recent wins' },
   { name: '40-support', as: 'support', path: '/support', expectText: 'My students' },
   { name: '50-admin-overview', as: 'admin', path: '/admin', expectText: 'Active cases' },
   { name: '51-admin-catalog', as: 'admin', path: '/admin/catalog', expectText: 'Pattern catalog' },
@@ -25,6 +29,9 @@ const SCREENS: Array<{ name: string; as: AccountKey | null; path: string; expect
   { name: '54-admin-people', as: 'admin', path: '/admin/people', expectText: 'People & access' },
   { name: '55-admin-structure', as: 'admin', path: '/admin/structure', expectText: 'School structure' },
   { name: '56-admin-audit', as: 'admin', path: '/admin/audit', expectText: 'Audit log' },
+  { name: '57-admin-insights', as: 'admin', path: '/admin/insights', expectText: 'Support for educators, not surveillance' },
+  { name: '58-admin-report-templates', as: 'admin', path: '/admin/report-templates', expectText: 'Report templates' },
+  { name: '41-support-report-templates', as: 'support', path: '/support/report-templates', expectText: 'Report templates' },
 ];
 
 test.describe.configure({ mode: 'serial' });

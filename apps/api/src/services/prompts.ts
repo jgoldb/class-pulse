@@ -1,5 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { PROMPT_SEEDS } from '@class-pulse/ai';
+import { CLASSROOM_SUITE_VERSION } from '@class-pulse/ai/evals';
 import { newId, type AiSurface, type PromptVersion } from '@class-pulse/domain';
 import type { Db } from '../db/client';
 import { evalRuns, promptVersions } from '../db/schema';
@@ -8,8 +9,11 @@ import { badRequest, conflict, notFound } from '../context';
 /**
  * Copy code-defined prompt seeds into the registry table (idempotent). On a fresh database the
  * seeds' statuses apply as written. On an existing database, new versions are inserted as
- * `draft` regardless of their seed status: promotion goes through the eval-gated path
- * (docs/03), never through a redeploy.
+ * `draft`. A surface's evaluated seed version (seed status `active`, backed by a checked-in live
+ * eval report) becomes active when the surface has no active version or only an older
+ * system version the registry marks retired — so a deploy makes features work without admin steps,
+ * but never replaces a version an administrator created or chose. Retired versions cannot be re-promoted, so this cannot undo a
+ * rollback. Any other promotion goes through the eval-gated path (docs/03).
  */
 export async function seedPrompts(db: Db): Promise<void> {
   const existing = await db.select({ id: promptVersions.id, surface: promptVersions.surface, status: promptVersions.status }).from(promptVersions);
@@ -18,6 +22,18 @@ export async function seedPrompts(db: Db): Promise<void> {
     if (existing.some((e) => e.id === seed.id)) continue;
     const status = surfacesWithRows.has(seed.surface) ? 'draft' : seed.status;
     await db.insert(promptVersions).values({ ...seed, params: seed.params, status }).onConflictDoNothing();
+  }
+  const current = await db.select({ id: promptVersions.id, surface: promptVersions.surface, version: promptVersions.version, status: promptVersions.status, createdBy: promptVersions.createdBy }).from(promptVersions);
+  for (const seed of PROMPT_SEEDS.filter((s) => s.status === 'active')) {
+    const active = current.find((e) => e.surface === seed.surface && e.status === 'active');
+    // Upgrade only from a system version the registry now marks retired (superseded in code).
+    // Administrator-created versions, and system versions an administrator chose, stay put.
+    const superseded = active && active.createdBy === 'system' && active.version < seed.version && PROMPT_SEEDS.find((p) => p.id === active.id)?.status === 'retired';
+    if (active && !superseded) continue;
+    await db.transaction(async (tx) => {
+      if (active) await tx.update(promptVersions).set({ status: 'retired' }).where(eq(promptVersions.id, active.id));
+      await tx.update(promptVersions).set({ status: 'active' }).where(and(eq(promptVersions.id, seed.id), eq(promptVersions.status, 'draft')));
+    });
   }
 }
 
@@ -79,7 +95,7 @@ export async function promotePrompt(db: Db, id: string, by: string): Promise<voi
   if (target.surface === 'plan_generation' || target.surface === 'classroom_draft') {
     const [run] = await db.select().from(evalRuns).where(eq(evalRuns.promptVersionId, id)).orderBy(desc(evalRuns.createdAt)).limit(1);
     if (!run || !run.passed) throw badRequest('Promotion blocked: no passing eval run recorded for this prompt version', { latestEval: run ?? null });
-    if (target.surface === 'classroom_draft' && (run.report as { suiteVersion?: string }).suiteVersion !== 'classroom.v2') throw badRequest('Promotion requires the current classroom evaluation suite');
+    if (target.surface === 'classroom_draft' && (run.report as { suiteVersion?: string }).suiteVersion !== CLASSROOM_SUITE_VERSION) throw badRequest('Promotion requires the current classroom evaluation suite');
   }
   await db.transaction(async (tx) => {
     await tx.update(promptVersions).set({ status: 'retired' }).where(and(eq(promptVersions.surface, target.surface), eq(promptVersions.status, 'active')));

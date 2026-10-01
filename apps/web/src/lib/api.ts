@@ -15,12 +15,13 @@ export function setTokenGetter(fn: () => Promise<string | null>) {
   tokenGetter = fn;
 }
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, url: string, body?: unknown, raw?: { data: Blob; type: string }): Promise<T> {
   const token = await tokenGetter();
   const headers: Record<string, string> = {};
   if (token) headers.authorization = `Bearer ${token}`;
-  if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  if (raw) headers['content-type'] = raw.type;
+  else if (body !== undefined) headers['content-type'] = 'application/json';
+  const res = await fetch(url, { method, headers, body: raw ? raw.data : body !== undefined ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let data: { error?: string; details?: unknown; code?: string } | null = null;
   try {
@@ -36,6 +37,8 @@ export const api = {
   get: <T>(url: string) => request<T>('GET', url),
   post: <T>(url: string, body?: unknown) => request<T>('POST', url, body ?? {}),
   patch: <T>(url: string, body?: unknown) => request<T>('PATCH', url, body ?? {}),
+  /** Raw binary upload (voice notes). */
+  upload: <T>(url: string, data: Blob, type: string) => request<T>('POST', url, undefined, { data, type }),
 };
 
 export function fmtDate(d: string | Date | null | undefined): string {

@@ -20,6 +20,9 @@ ask them; do not build a throwaway substitute.
 - Access is invitation-based: a user row exists only via an `invitations` row or workspace
   onboarding. `Authorization: Test <userId>` is honoured only under `NODE_ENV=test`.
 - The mock model provider is honoured only under `NODE_ENV=test`.
+- Features must work after a plain deploy: defaults, backfills and the prompt registry's evaluated
+  `active` version do the setup. Voice is the deliberate exception — it needs a recorded school
+  approval (guide §E).
 
 ## Commands
 
@@ -35,6 +38,10 @@ npm run db:empty  -- --target <local|e2e|fly>   # drop everything, re-migrate, l
 npm run dev             # api :3001, web :5173   (port 4300 is reserved by the owner for another app)
 npm run e2e             # Playwright on :3011/:5174 against DATABASE_URL_E2E; e2e:fast reuses the seed
 npm run evals           # EVAL_PROMPT_VERSION=N to test a draft prompt
+npm run evals:classroom # classroom prompt suite, live; EVAL_PROMPT_VERSION=N; check the report into docs/evidence
+npm run e2e:pulse       # isolated UI walkthroughs (desktop/tablet/phone) with axe WCAG scans; no credentials
+npm run db:backup  -- --target <local|e2e>             # JSON backup to backups/ (gitignored, has learner data)
+npm run db:restore -- --target <local|e2e> --in f --yes  # into an empty, migrated database only
 npm run db:generate     # after editing apps/api/src/db/schema.ts (drizzle-kit prompts on renames:
                         # add tables in one generate, drop in a second)
 npm run deploy          # fly deploy + the VITE_CLERK_PUBLISHABLE_KEY build arg the Dockerfile

@@ -20,7 +20,7 @@ test('student: goals, things that help, and a check-in that saves', async ({ pag
 test('family: provenance, goals without raw baselines, data explanation, correction request', async ({ page, signInAs }) => {
   await signInAs('guardian');
   await expect(page.getByText('About this plan')).toBeVisible();
-  await expect(page.getByText(/approved by/)).toBeVisible();
+  await expect(page.getByText(/approved by/).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'What is collected, and why' })).toBeVisible();
   await expect(page.getByText(/Baseline ambiguous|Reported:/)).toHaveCount(0);
   await page.getByLabel('Subject').fill('Date of an entry looks wrong');
@@ -50,8 +50,9 @@ test('support professional: cross-case view and the support queue', async ({ pag
 
 test('second teacher is scoped to their own section only', async ({ page, signInAs }) => {
   await signInAs('teacher2');
-  await expect(page.getByText('Avery Synthetic')).toHaveCount(0);
-  await expect(page.getByText(/Oakley Example|Parker Mock/)).toBeVisible();
+  // Home is Class Pulse: seats carry full names in their accessible labels.
+  await expect(page.getByRole('option', { name: /Avery Synthetic/ })).toHaveCount(0);
+  await expect(page.getByRole('option', { name: /Parker Mock/ })).toBeVisible();
 });
 
 test('administrator: aggregates, catalog, equity, structure and invitations', async ({ page, signInAs }) => {

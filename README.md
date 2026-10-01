@@ -1,37 +1,33 @@
-# Pulsera (Class Pulse)
+# Pulsera
 
-A role-scoped web app where a teacher submits de-identified behavior observations, an LLM drafts
-a structured behavior-support plan, a human approves it, and the plan becomes a live tracked
-object with goals, logged data, progress views, and scheduled review decisions.
+**The AI classroom operating system that works during instruction.** A teacher keeps Class Pulse
+open during a lesson, taps (or types, or — once the school approves a provider — speaks) what they
+notice, and Pulsera drafts the documentation, the next instructional step, family notes and
+tomorrow's materials. Nothing becomes a record until a named teacher approves the exact version
+(Teacher Confirm).
 
-On top of that loop sits a **pattern engine**: deterministic rules watch a student's accumulated
-signals (behavior, grades, attendance, assessments) for combinations worth a human's attention,
-and an LLM proposes candidate interventions for the ones that fire. Detection is always
-deterministic and auditable. Interpretation is generative. Decisions are always human.
+| Surface | What it does |
+|---|---|
+| Class Pulse™ | Live seating chart, one-tap and keyboard capture, session context carried automatically, no case required |
+| Drafts (Teacher Confirm™) | Inbox grouped by purpose: what happened, what Pulsera drafted, the approved record; bulk review |
+| Tomorrow Ready™ | Do Now, reteach, small groups, family drafts, reminders and intervention reviews for the next class |
+| Students / Pulsera Guide™ | Living profile, Classroom Memory, intervention history, contextual Guide and Pulsera Reports™ |
+| My Pulse™ / Family Pulse™ | Strengths first, goals with progress rings, strategy choice, attributed home observations |
+| Pulsera Insights™ | Suppressed school-wide trends for administrators, no drill-down |
 
-**Status:** implemented through Phase 7 of the roadmap on real infrastructure (Clerk, Neon
-Postgres, OpenAI), verified by a browser harness that drives every screen for every role. The
-only simulated component is the payment page, which stands in for Stripe until Stripe is wired.
-See [08 — Implementation notes](docs/08-implementation-notes.md).
+Underneath sits the original support-planning loop — AI-drafted, educator-approved behavior
+support plans with deterministic pattern detection and scheduled reviews — now fed by classroom
+evidence. Detection is deterministic; interpretation is generative; decisions are human.
 
-**Pulsera expansion:** implementation is in progress against
-[09 — Pulsera implementation plan](docs/09-pulsera-implementation-plan.md). Synthetic workspaces
-can enable Class Pulse in **Administration → School structure**, choosing the school timezone.
-The new flow includes no-case observations, seating snapshots, reviewed roster CSV imports,
-correction/undo, typed drafts, exact-version approval/export, and scheduled Tomorrow preparation.
-It also includes reviewed small groups, SST/MTSS/FBA-support packets, contextual Guide actions,
-follow-ups, multiple-child profiles, attributed student/family contributions and responses,
-classroom-informed plan revisions, section-scoped memory, and suppressed aggregate Insights.
-Communication approval and portal sharing are separate actions; external delivery remains off.
-The new `classroom_draft.v3` prompt starts as a draft: run its 15-case classroom eval suite and
-promote it in administration before live generation. AI-off capture still works.
-External transcription and real-student pilots remain gated on school/provider approvals. See
-the [pilot runbook and outstanding evidence](docs/10-pulsera-pilot-runbook.md).
+**Status:** the Pulsera implementation guide is implemented in full (see
+[11 — Pulsera guide alignment](docs/11-pulsera-guide-alignment.md)) on real infrastructure (Clerk,
+Neon Postgres, OpenAI). A plain deploy is enough: Class Pulse is on for synthetic workspaces and
+the evaluated classroom prompt activates on boot. Voice capture deliberately stays off until a
+school records its provider approval. Real-student pilots still need the school sign-offs in the
+[pilot runbook](docs/10-pulsera-pilot-runbook.md). The only simulated component is the payment page.
 
-`npx playwright test --config playwright.pulse.config.ts` runs the isolated synthetic classroom
-component suite in Edge at desktop and phone sizes without loading credentials or resetting a
-database. API integration tests use ephemeral PGlite. This is separate from the existing Clerk /
-Neon / live-model browser suite and does not establish operational pilot readiness.
+`npm run e2e:pulse` runs the isolated walkthroughs at desktop, tablet and phone sizes with axe
+WCAG scans, without credentials. `npm run e2e` drives the full product with real auth and model.
 
 ## Stack
 

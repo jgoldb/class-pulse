@@ -11,6 +11,8 @@ export const ClassroomObservation = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('behavior'), action: text, antecedent: note.nullable(), consequence: note.nullable(), measuredCount: z.number().int().min(0).max(10000).nullable(), note }).strict(),
   z.object({ kind: z.literal('attendance'), status: z.enum(['present', 'absent', 'late']), note }).strict(),
   z.object({ kind: z.literal('exit_ticket'), concept: text, response: text, assessment: z.enum(['demonstrated', 'needs_practice', 'not_assessed']), note }).strict(),
+  // A free-form teacher note. The note itself is the observation, so it may not be empty.
+  z.object({ kind: z.literal('note'), note: z.string().trim().min(1).max(2000) }).strict(),
 ]);
 export type ClassroomObservation = z.infer<typeof ClassroomObservation>;
 export const CaptureEvent = z.object({
@@ -41,3 +43,20 @@ export const SeatingInput = z.object({
   }
 });
 export type SeatingInput = z.infer<typeof SeatingInput>;
+
+/** A teacher's own wording for the quick-pick capture presets (docs/09 Q6: refined with the pilot teacher). */
+const preset = z.string().trim().min(1).max(80);
+export const CaptureVocabulary = z.object({
+  praise: z.array(preset).min(1).max(8),
+  checkIn: z.array(preset).min(1).max(8),
+}).strict().superRefine((v, ctx) => {
+  for (const key of ['praise', 'checkIn'] as const) {
+    if (new Set(v[key].map((s) => s.toLowerCase())).size !== v[key].length) ctx.addIssue({ code: 'custom', path: [key], message: 'Each preset must be different' });
+  }
+});
+export type CaptureVocabulary = z.infer<typeof CaptureVocabulary>;
+/** Neutral, observable defaults until a teacher sets their own. */
+export const DEFAULT_CAPTURE_VOCABULARY: CaptureVocabulary = {
+  praise: ['Explained their reasoning', 'Persevered through a challenge', 'Helped a classmate', 'Strong effort on today’s task', 'Asked a thoughtful question'],
+  checkIn: ['Checked progress on the task', 'Offered help', 'Reviewed work together', 'Clarified the directions'],
+};

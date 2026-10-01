@@ -3,7 +3,7 @@
  * eslint `no-restricted-imports` and egress.test.ts both enforce this.
  */
 import OpenAI from 'openai';
-import { ProviderError, type ModelProvider, type StructuredRequest, type StructuredResponse } from './provider';
+import { ProviderError, type ModelProvider, type StructuredRequest, type StructuredResponse, type TranscriptionRequest, type TranscriptionResponse } from './provider';
 
 export interface OpenAIProviderConfig {
   apiKey: string;
@@ -26,6 +26,20 @@ export class OpenAIProvider implements ModelProvider {
       timeout: cfg.timeoutMs ?? 120_000,
       maxRetries: 2,
     });
+  }
+
+  /** Voice notes (guide §E). Only reachable once a school has approved this provider for audio. */
+  async transcribe(req: TranscriptionRequest): Promise<TranscriptionResponse> {
+    try {
+      const extension = req.mimeType.includes('mp4') ? 'm4a' : req.mimeType.includes('ogg') ? 'ogg' : req.mimeType.includes('wav') ? 'wav' : 'webm';
+      const file = await OpenAI.toFile(Buffer.from(req.audio), `voice-note.${extension}`, { type: req.mimeType });
+      const res = await this.client.audio.transcriptions.create({ file, model: req.model, language: req.language, response_format: 'json' });
+      return { text: res.text, model: req.model, providerRequestId: null };
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      const retryable = status === undefined || status === 408 || status === 429 || status >= 500;
+      throw new ProviderError(`OpenAI transcription failed${status ? ` (${status})` : ''}`, retryable, err);
+    }
   }
 
   async complete(req: StructuredRequest): Promise<StructuredResponse> {

@@ -12,6 +12,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:web"],
       "port": 5173
+    },
+    {
+      "name": "pulse-ui",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--config", "e2e/pulse-vite.config.ts"],
+      "port": 5188,
+      "url": "http://127.0.0.1:5188"
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { ArtifactContent, ArtifactKind, ArtifactSource, ClassroomObservation, ContributionContent, PlanRevisionSource, TomorrowSchedule } from '@class-pulse/domain';
+import type { ArtifactContent, ArtifactKind, ArtifactSource, CaptureVocabulary, ClassroomObservation, ContributionContent, PlanRevisionSource, TomorrowSchedule } from '@class-pulse/domain';
 import { boolean, index, integer, jsonb, pgSchema, primaryKey, real, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
@@ -16,7 +16,8 @@ const ts = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' 
 export const organizations = identified.table('organizations', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  pulseraEnabled: boolean('pulsera_enabled').notNull().default(false),
+  /** On by default; the API still requires demonstration posture and synthetic learners (services/pulse.ts). */
+  pulseraEnabled: boolean('pulsera_enabled').notNull().default(true),
   /** Org-level extension of the controlled context-tag vocabulary. */
   contextTagExtensions: jsonb('context_tag_extensions').$type<Array<{ tag: string; dimension: string }>>().notNull().default(sql`'[]'::jsonb`),
 });
@@ -26,6 +27,11 @@ export const schools = identified.table('schools', {
   orgId: text('org_id').notNull().references(() => organizations.id),
   name: text('name').notNull(),
   timezone: text('timezone').notNull().default('UTC'),
+  /** School collection policy for family-reported sleep and mood (guide §H). */
+  familyWellbeingCollection: boolean('family_wellbeing_collection').notNull().default(true),
+  /** Retention policy: days pending (unapproved) text is kept, and the approved classroom-memory window. */
+  pendingRetentionDays: integer('pending_retention_days').notNull().default(30),
+  memoryWindowDays: integer('memory_window_days').notNull().default(120),
 });
 
 export const classSections = identified.table('class_sections', {
@@ -246,6 +252,34 @@ export const artifactPublications = working.table('artifact_publications', {
   deliveryState: text('delivery_state').notNull().default('not_sent'),
 }, (t) => [uniqueIndex('artifact_publication_idx').on(t.draftId, t.revision)]);
 
+/**
+ * A qualified educator's sign-off that a report template may be used at their school (docs/09
+ * Q9). Revoking keeps the row with revokedAt so the history stays visible.
+ */
+export const reportTemplateValidations = working.table('report_template_validations', {
+  id: text('id').primaryKey(), schoolId: text('school_id').notNull(), kind: text('kind').$type<ArtifactKind>().notNull(),
+  validatedBy: text('validated_by').notNull(), validatorRole: text('validator_role').notNull(), notes: text('notes').notNull(),
+  validatedAt: ts('validated_at').notNull(), revokedAt: ts('revoked_at'),
+}, (t) => [index('report_template_validation_idx').on(t.schoolId, t.kind)]);
+
+/**
+ * The approved audio-provider boundary (guide §E, docs/09 Q4): a school official's approval of a
+ * named transcription provider, recorded by an administrator. Voice capture stays off without one.
+ */
+export const voiceApprovals = working.table('voice_approvals', {
+  id: text('id').primaryKey(), schoolId: text('school_id').notNull(), provider: text('provider').notNull(),
+  approvedByName: text('approved_by_name').notNull(), approvedByTitle: text('approved_by_title').notNull(),
+  policyReference: text('policy_reference').notNull(), recordedBy: text('recorded_by').notNull(),
+  recordedAt: ts('recorded_at').notNull(), revokedAt: ts('revoked_at'),
+}, (t) => [index('voice_approvals_school_idx').on(t.schoolId)]);
+
+/** Per-teacher capture wording. Teacher-authored labels, never learner data. */
+export const teacherPreferences = working.table('teacher_preferences', {
+  userId: text('user_id').primaryKey(),
+  captureVocabulary: jsonb('capture_vocabulary').$type<CaptureVocabulary>(),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+});
+
 export const tomorrowSchedules = working.table('tomorrow_schedules', {
   sectionId: text('section_id').notNull(), teacherId: text('teacher_id').notNull(),
   settings: jsonb('settings').$type<TomorrowSchedule>().notNull(), lastPreparedDate: text('last_prepared_date'),
@@ -272,6 +306,7 @@ export const contributions = working.table('contributions', {
   id: text('id').primaryKey(), learnerKey: text('learner_key').notNull().references(() => learners.learnerKey),
   sectionId: text('section_id').notNull(), schoolId: text('school_id').notNull(),
   createdBy: text('created_by').notNull(), sourceRole: text('source_role').$type<'student' | 'guardian'>().notNull(), recipientId: text('recipient_id').notNull(),
+  visibility: text('visibility').$type<'teacher' | 'teacher_and_student'>().notNull().default('teacher'),
   revision: integer('revision').notNull().default(1), status: text('status').$type<'pending' | 'acknowledged' | 'accepted' | 'declined' | 'withdrawn' | 'expired'>().notNull().default('pending'),
   response: text('response'), respondedAt: ts('responded_at'), expiresAt: ts('expires_at').notNull(),
   createdAt: ts('created_at').notNull().defaultNow(), updatedAt: ts('updated_at').notNull().defaultNow(),

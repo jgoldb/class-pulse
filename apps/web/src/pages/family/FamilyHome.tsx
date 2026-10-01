@@ -12,7 +12,7 @@ import { TargetBadge } from '../../components/GoalCard';
  * summaries, accomplishments, home support, plan provenance, confirmed patterns in plain
  * language, what data is collected and why, and a correction pathway.
  */
-export function FamilyHome({ selectedCaseKey }: { selectedCaseKey?: string } = {}) {
+export function FamilyHome({ selectedCaseKey, embedded }: { selectedCaseKey?: string; embedded?: boolean } = {}) {
   const qc = useQueryClient();
   const cases = useQuery({ queryKey: ['cases'], queryFn: () => api.get<CaseListItem[]>('/api/cases') });
   const caseKey = selectedCaseKey ?? cases.data?.find((c) => c.plan?.status === 'active')?.caseKey ?? cases.data?.[0]?.caseKey;
@@ -35,20 +35,27 @@ export function FamilyHome({ selectedCaseKey }: { selectedCaseKey?: string } = {
   const goals = v.goals ?? [];
   const home = (v.strategies ?? []).filter((s) => s.kind === 'family');
   const decided = (v.reviewCycles ?? []).filter((r) => r.narrativeFamily);
+  const next = (v.reviewCycles ?? []).filter((r) => ['scheduled', 'open'].includes(r.status)).sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex items-center gap-4">
+    <div className={embedded ? 'space-y-4' : 'mx-auto max-w-3xl space-y-4'}>
+      {embedded ? <h2 className="text-xl font-bold tracking-tight">Goals and growth</h2> : <div className="flex items-center gap-4">
         <Avatar name={v.student?.displayName ?? 'Your child'} size="xl" />
         <div>
           {selectedCaseKey ? <h3 className="text-xl font-bold tracking-tight">{v.student?.displayName ?? 'Your child'}</h3> : <h1 className="text-2xl font-bold tracking-tight">{v.student?.displayName ?? 'Your child'}</h1>}
           <p className="text-sm text-muted">Grade {v.case_gradeLevel} · plan {humanize(v.plan_status) || '—'}</p>
         </div>
-      </div>
+      </div>}
 
       <Callout tone="primary" icon={<ShieldCheck />} title="About this plan">
         Drafted with AI assistance from de-identified teacher observations, then reviewed and approved by <span className="font-medium">{v.plan_provenance?.approvedBy ?? '—'}</span> on {fmtDateTime(v.plan_provenance?.approvedAt)}. Nothing applies to your child without an educator's approval.
       </Callout>
+
+      {next && (
+        <Callout tone="info" icon={<Info />} title="Coming up">
+          The team reviews progress on {goals.length === 1 ? 'this goal' : `these ${goals.length} goals`} around {fmtDate(next.dueAt)}. You can share what you see at home before then.
+        </Callout>
+      )}
 
       <Stagger className="space-y-4">
         <StaggerItem>

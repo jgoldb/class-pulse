@@ -14,7 +14,7 @@
  * burning a second call on a provider that is off by configuration and will not come back
  * within the request.
  */
-import { ProviderError, type ModelProvider, type StructuredRequest, type StructuredResponse } from './provider';
+import { ProviderError, type ModelProvider, type StructuredRequest, type StructuredResponse, type TranscriptionResponse } from './provider';
 
 export const DISABLED_MESSAGE = 'The model is turned off for this deployment (AI_PROVIDER=off). No request was sent.';
 
@@ -23,5 +23,9 @@ export class DisabledProvider implements ModelProvider {
 
   async complete(req: StructuredRequest): Promise<StructuredResponse> {
     throw new ProviderError(`${DISABLED_MESSAGE} Surface: ${req.surface}.`, false);
+  }
+
+  async transcribe(): Promise<TranscriptionResponse> {
+    throw new ProviderError(`${DISABLED_MESSAGE} Surface: voice_transcription.`, false);
   }
 }

@@ -24,9 +24,19 @@ export interface StructuredResponse {
   providerRequestId: string | null;
 }
 
+/** A short teacher voice note. The audio exists only in memory for the duration of the call. */
+export interface TranscriptionRequest {
+  model: string;
+  audio: Uint8Array;
+  mimeType: string;
+  language: string;
+}
+export interface TranscriptionResponse { text: string; model: string; providerRequestId: string | null }
+
 export interface ModelProvider {
   readonly name: string;
   complete(req: StructuredRequest): Promise<StructuredResponse>;
+  transcribe(req: TranscriptionRequest): Promise<TranscriptionResponse>;
 }
 
 export class ProviderError extends Error {

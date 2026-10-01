@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { newId } from '@class-pulse/domain';
 import { EVAL_CASES } from '@class-pulse/ai/evals';
 import { createApp, type AppHandle } from './bootstrap';
@@ -8,9 +8,10 @@ import { buildServer } from './server';
 import { buildGate } from './services/ai';
 import { enqueueTomorrowSchedules } from './services/tomorrow';
 import { expirePendingClassroomContent } from './services/pulse-retention';
+import { seedPrompts } from './services/prompts';
 import { expireContributions } from './services/contributions';
 import type { FastifyInstance } from 'fastify';
-import { artifactPublications, auditEvents, cases, caseLinks, classSections, classSessions, classroomDrafts, classroomEgressPayloads, classroomEvents, egressLog, eventRevisions, followUpTasks, jobs, learnerLinks, organizations, roleAssignments, schools, sectionEnrollments, signalProjections, signals, students, tomorrowSchedules, users } from './db/schema';
+import { artifactPublications, auditEvents, promptVersions, cases, caseLinks, classSections, classSessions, classroomDrafts, classroomEgressPayloads, classroomEvents, egressLog, eventRevisions, followUpTasks, jobs, learnerLinks, organizations, roleAssignments, schools, sectionEnrollments, signalProjections, signals, students, tomorrowSchedules, users } from './db/schema';
 
 let handle: AppHandle, server: FastifyInstance;
 const ids = { teacher: 'teacher', other: 'other', coteacher: 'coteacher', guardian: 'guardian', student: 'student', admin: 'admin' };
@@ -44,12 +45,22 @@ let sessionId: string, eventId: string;
 const participation = { kind: 'participation', action: 'contributed', note: '' };
 const capture = (extra: Record<string, unknown> = {}) => ({ requestId: newId(), sessionId, studentId: 'a', source: 'teacher_tap', observedAt: new Date().toISOString(), observation: participation, confirmed: true, ...extra });
 describe('Pulsera classroom foundation', () => {
-  it('is off by default, requires an administrator and a valid school timezone', async () => {
-    expect((await call('teacher', 'GET', '/api/pulse/sections')).body[0].enabled).toBe(false);
+  it('is on by default for a synthetic workspace; settings require an administrator and a valid school timezone', async () => {
+    expect((await call('teacher', 'GET', '/api/pulse/sections')).body[0].enabled).toBe(true);
     const settings = { schoolId: 'school', enabled: true, timezone: 'America/New_York' };
     expect((await call('teacher', 'POST', '/api/pulse/settings', settings)).status).toBe(403);
     expect((await call('admin', 'POST', '/api/pulse/settings', { ...settings, timezone: 'Mars' })).status).toBe(400);
     expect((await call('admin', 'POST', '/api/pulse/settings', settings)).status).toBe(200);
+  });
+  it('turns existing workspaces on by migration only where every learner is synthetic', async () => {
+    const db = handle.ctx.db;
+    await db.insert(organizations).values([{ id: 'org-synthetic', name: 'Synthetic', pulseraEnabled: false }, { id: 'org-real', name: 'Real', pulseraEnabled: false }]);
+    await db.insert(schools).values([{ id: 'school-synthetic', orgId: 'org-synthetic', name: 'S' }, { id: 'school-real', orgId: 'org-real', name: 'R' }]);
+    await db.insert(students).values([{ id: 'syn', schoolId: 'school-synthetic', firstName: 'Lane', lastName: 'Fixture', gradeLevel: '6' }, { id: 'real', schoolId: 'school-real', firstName: 'Taylor', lastName: 'Person', gradeLevel: '6', synthetic: false }]);
+    const backfill = readFileSync(new URL('../drizzle/0016_pulsera_on_by_default.sql', import.meta.url), 'utf8').split('--> statement-breakpoint')[1]!;
+    await db.execute(sql.raw(backfill));
+    const flags = await db.select({ id: organizations.id, enabled: organizations.pulseraEnabled }).from(organizations).where(inArray(organizations.id, ['org-synthetic', 'org-real']));
+    expect(Object.fromEntries(flags.map((f) => [f.id, f.enabled]))).toEqual({ 'org-synthetic': true, 'org-real': false });
   });
   it('snapshots seating, deduplicates sessions, and rejects reused request IDs', async () => {
     const seats = { expectedVersion: 0, positions: [{ studentId: 'a', row: 0, column: 0 }, { studentId: 'b', row: 0, column: 1 }] };
@@ -74,6 +85,24 @@ describe('Pulsera classroom foundation', () => {
     const result = await call('teacher', 'GET', `/api/pulse/sessions/${sessionId}`);
     expect(result.body.events[0]).toMatchObject({ confirmedBy: 'teacher', status: 'confirmed', source: 'teacher_tap', studentId: 'a' });
     expect((await call('teacher', 'POST', '/api/pulse/events', { ...input, studentId: 'b' })).status).toBe(409);
+  });
+  it('records a free-form note as its own observation and rejects an empty one', async () => {
+    const saved = await call('teacher', 'POST', '/api/pulse/events', capture({ observation: { kind: 'note', note: 'Worked through the warm-up with a partner' } }));
+    expect(saved.status).toBe(200);
+    expect((await call('teacher', 'POST', '/api/pulse/events', capture({ observation: { kind: 'note', note: '  ' } }))).status).toBe(400);
+    expect((await call('teacher', 'POST', '/api/pulse/events', capture({ observation: { kind: 'note', note: 'Robin Sample worked well' } }))).status).toBe(400);
+    expect((await call('teacher', 'POST', `/api/pulse/events/${saved.body.id}/withdraw`, { expectedRevision: 1 })).status).toBe(200);
+  });
+  it('keeps each teacher’s quick-pick wording private, name-free and resettable', async () => {
+    const initial = await call('teacher', 'GET', '/api/pulse/vocabulary');
+    expect(initial.body).toMatchObject({ custom: false, vocabulary: initial.body.defaults });
+    const mine = { praise: ['Used the number line', 'Encouraged a partner'], checkIn: ['Checked step two'] };
+    expect((await call('teacher', 'POST', '/api/pulse/vocabulary', { vocabulary: mine })).body).toMatchObject({ custom: true, vocabulary: mine });
+    expect((await call('coteacher', 'GET', '/api/pulse/vocabulary')).body.custom).toBe(false);
+    expect((await call('teacher', 'POST', '/api/pulse/vocabulary', { vocabulary: { praise: ['Robin Sample helped'], checkIn: ['Offered help'] } })).status).toBe(400);
+    expect((await call('teacher', 'POST', '/api/pulse/vocabulary', { vocabulary: { praise: ['Same', 'same'], checkIn: ['Offered help'] } })).status).toBe(400);
+    expect((await call('guardian', 'POST', '/api/pulse/vocabulary', { vocabulary: mine })).status).toBe(403);
+    expect((await call('teacher', 'POST', '/api/pulse/vocabulary', { vocabulary: null })).body.custom).toBe(false);
   });
   it('rejects other roles, private co-teacher access, cross-section subjects, PII, and untyped fields', async () => {
     for (const who of ['other', 'guardian', 'student', 'admin', 'coteacher'] as const) {
@@ -170,6 +199,23 @@ describe('classroom draft publication', () => {
     expect(payloads.length).toBeGreaterThan(0);
     for (const payload of payloads) for (const forbidden of ['learnerKey', 'studentId', 'eventId', sourceId, 'Robin', 'Sample']) expect(payload.input).not.toContain(forbidden);
   });
+  it('activates the evaluated seed version on boot only when nothing is active', async () => {
+    const db = handle.ctx.db;
+    const status = async () => Object.fromEntries((await db.select({ id: promptVersions.id, status: promptVersions.status }).from(promptVersions).where(eq(promptVersions.surface, 'classroom_draft'))).map((p) => [p.id, p.status]));
+    await seedPrompts(db);
+    expect(await status()).toMatchObject({ 'classroom_draft.v1': 'active', 'classroom_draft.v4': 'retired' });
+    // An existing database that never promoted a classroom prompt (as on Fly before 2026-10-01).
+    await db.update(promptVersions).set({ status: 'draft' }).where(eq(promptVersions.surface, 'classroom_draft'));
+    await seedPrompts(db);
+    expect(await status()).toEqual({ 'classroom_draft.v1': 'draft', 'classroom_draft.v2': 'draft', 'classroom_draft.v3': 'draft', 'classroom_draft.v4': 'active' });
+    // A database still on the older system version (as on Fly before this deploy) upgrades on boot.
+    await db.update(promptVersions).set({ status: 'draft' }).where(eq(promptVersions.id, 'classroom_draft.v4'));
+    await db.update(promptVersions).set({ status: 'active' }).where(eq(promptVersions.id, 'classroom_draft.v3'));
+    await seedPrompts(db);
+    expect(await status()).toMatchObject({ 'classroom_draft.v3': 'retired', 'classroom_draft.v4': 'active' });
+    await db.update(promptVersions).set({ status: 'retired' }).where(eq(promptVersions.id, 'classroom_draft.v4'));
+    await db.update(promptVersions).set({ status: 'active' }).where(eq(promptVersions.id, 'classroom_draft.v1'));
+  });
   it('requires exact version approval, atomically publishes once, and never sends a message', async () => {
     const read = await call('teacher', 'GET', `/api/pulse/drafts/${draftId}`);
     const content = { ...read.body.revisions[0].content, message: 'A classroom contribution was recorded.' };
@@ -182,12 +228,19 @@ describe('classroom draft publication', () => {
     const exported = await call('teacher', 'POST', `/api/pulse/drafts/${draftId}/export`, {});
     expect(exported.body.content).toEqual(content); expect(exported.body.delivery).toBe('not_sent');
   });
+  it('lists each draft with who it concerns, what it came from and its approved audience', async () => {
+    const row = (await call('teacher', 'GET', '/api/pulse/drafts')).body.find((d: { id: string }) => d.id === draftId);
+    expect(row).toMatchObject({ students: [{ id: 'a', displayName: 'Robin Sample' }], evidenceKinds: ['participation'], session: { date: '2026-09-30', topic: 'Fractions' }, approvedAudience: 'family' });
+    expect(typeof row.title).toBe('string');
+  });
   it('invalidates already approved derivatives when source attribution changes', async () => {
     await call('teacher', 'POST', `/api/pulse/events/${sourceId}/revise`, { requestId: newId(), expectedRevision: 1, studentId: 'b', observation: participation, reason: 'Corrected attribution', confirmed: true });
     const [draft] = await handle.ctx.db.select().from(classroomDrafts).where(eq(classroomDrafts.id, draftId));
     expect(draft).toMatchObject({ reviewState: 'stale', publicationState: 'needs_review' });
     expect((await call('teacher', 'POST', `/api/pulse/drafts/${draftId}/export`, {})).status).toBe(409);
     expect((await call('teacher', 'POST', `/api/pulse/drafts/${draftId}/approve`, { expectedRevision: 2, audience: 'family' })).status).toBe(409);
+    const stale = (await call('teacher', 'GET', '/api/pulse/drafts')).body.find((d: { id: string }) => d.id === draftId);
+    expect(stale).toMatchObject({ reviewState: 'stale', sources: [], students: [], evidenceKinds: [], title: null });
   });
 });
 
@@ -331,10 +384,12 @@ describe('aggregate classroom insights', () => {
     for (const role of ['teacher', 'guardian', 'student', 'coteacher'] as const) expect((await call(role, 'GET', '/api/pulse/insights')).status).toBe(403);
     const small = await call('admin', 'GET', '/api/pulse/insights');
     expect(small.status).toBe(200);
-    for (const name of ['participation', 'instruction', 'followUps', 'documentation']) {
+    for (const name of ['participation', 'checkIns', 'instruction', 'followUps', 'documentation']) {
       expect(small.body[name].total).toBeNull();
       expect(small.body[name].cells.every((c: { count: number | null }) => c.count === null || c.count === 0)).toBe(true);
     }
+    expect(small.body.participationTrend).toHaveLength(4);
+    expect(small.body.participationTrend.every((w: { observed: number | null; suppressed: boolean }) => w.observed === null && w.suppressed)).toBe(true);
     for (const forbidden of ['studentId', 'learnerKey', 'Robin', 'Sample', 'Left seat', 'Worked through']) expect(JSON.stringify(small.body)).not.toContain(forbidden);
     const minimum = handle.ctx.config.adminMinCellSize;
     handle.ctx.config.adminMinCellSize = 2;
@@ -451,7 +506,18 @@ describe('instructional groups, evidence reports, and follow-ups', () => {
     expect((await call('teacher', 'POST', '/api/pulse/follow-ups', taskInput)).status).toBe(409);
     expect((await call('teacher', 'POST', `/api/pulse/drafts/${draft.body.id}/approve`, { expectedRevision: 1, audience: 'teacher' })).status).toBe(200);
     const exported = await call('teacher', 'POST', `/api/pulse/drafts/${draft.body.id}/export`, {});
-    expect(exported.body.templateStatus).toBe('synthetic_template_pending_educator_validation');
+    expect(exported.body.templateStatus).toBe('template_pending_educator_validation');
+    expect(exported.body.template).toEqual({ validation: null });
+    expect(exported.body.evidence).toHaveLength(1);
+    const validate = { schoolId: 'school', kind: detail.body.draft.kind, validated: true, notes: 'Reviewed against our SST intake form.' };
+    expect((await call('teacher', 'POST', '/api/pulse/report-templates', validate)).status).toBe(403);
+    expect((await call('admin', 'POST', '/api/pulse/report-templates', validate)).status).toBe(200);
+    const validated = await call('teacher', 'POST', `/api/pulse/drafts/${draft.body.id}/export`, {});
+    expect(validated.body.templateStatus).toBeNull();
+    expect(validated.body.template.validation).toMatchObject({ name: 'admin', role: 'administrator', notes: 'Reviewed against our SST intake form.' });
+    expect((await call('teacher', 'GET', '/api/pulse/report-templates')).body[0]).toMatchObject({ schoolId: 'school', canValidate: false });
+    await call('admin', 'POST', '/api/pulse/report-templates', { ...validate, validated: false });
+    expect((await call('teacher', 'POST', `/api/pulse/drafts/${draft.body.id}/export`, {})).body.template).toEqual({ validation: null });
     expect(exported.body.publication.approverName).toBe('teacher');
     const [first, retry] = await Promise.all([call('teacher', 'POST', '/api/pulse/follow-ups', taskInput), call('teacher', 'POST', '/api/pulse/follow-ups', taskInput)]);
     expect(first.status).toBe(200); expect(retry.body.id).toBe(first.body.id);
@@ -536,5 +602,144 @@ describe('explicit event-to-case projection', () => {
     }
     const other = await call('teacher', 'POST', '/api/pulse/events', capture({ studentId: 'b', observation: { kind: 'attendance', status: 'present', note: '' } }));
     expect((await call('teacher', 'POST', '/api/pulse/events/' + other.body.id + '/project', input)).status).toBe(400);
+  });
+});
+
+describe('Tomorrow Ready bundle', () => {
+  it('prepares Do Now, reteach and a practice group from needs-practice evidence, idempotently', async () => {
+    const session = await call('teacher', 'POST', '/api/pulse/sessions', { requestId: newId(), sectionId: 'section', date: '2026-12-01', topic: 'Ratios', objective: 'Compare ratios', contextTags: [] });
+    const at = (studentId: string, observation: Record<string, unknown>) => call('teacher', 'POST', '/api/pulse/events', { requestId: newId(), sessionId: session.body.id, studentId, source: 'teacher_tap', observedAt: new Date().toISOString(), observation, confirmed: true });
+    await at('a', { kind: 'understanding', concept: 'Ratios', evidence: 'needs_practice', note: '' });
+    await at('b', { kind: 'understanding', concept: 'ratios', evidence: 'needs_practice', note: '' });
+    await at('a', { kind: 'praise', strength: 'Explained their reasoning', note: '' });
+    const first = await call('teacher', 'POST', '/api/pulse/tomorrow/section/prepare', {});
+    expect(first.body.requested).toEqual(['do_now', 'reteach', 'small_group']);
+    const bundle = await call('teacher', 'GET', '/api/pulse/tomorrow/section/bundle');
+    expect(bundle.status).toBe(200);
+    expect(bundle.body.session).toMatchObject({ date: '2026-12-01', confirmedCount: 3, needsPractice: 2 });
+    expect(bundle.body.instructional.map((d: { kind: string }) => d.kind).sort()).toEqual(['do_now', 'reteach', 'small_group']);
+    expect(bundle.body.targetDate > '2026-12-01').toBe(true);
+    expect(bundle.body.family.candidates).toEqual([expect.objectContaining({ studentId: 'a', draftId: null })]);
+    await call('teacher', 'POST', '/api/pulse/tomorrow/section/prepare', {});
+    const again = await call('teacher', 'GET', '/api/pulse/tomorrow/section/bundle');
+    expect(again.body.instructional.map((d: { id: string }) => d.id).sort()).toEqual(bundle.body.instructional.map((d: { id: string }) => d.id).sort());
+    expect((await call('guardian', 'GET', '/api/pulse/tomorrow/section/bundle')).status).toBe(403);
+  });
+});
+
+describe('Family Pulse collection policy and visibility', () => {
+  const submit = (who: 'guardian' | 'student', content: Record<string, unknown>, visibility?: string) => call(who, 'POST', '/api/pulse/contributions', { requestId: newId(), studentId: 'a', sectionId: 'section', recipientId: 'teacher', role: who, content, ...(visibility ? { visibility } : {}) });
+  it('accepts sleep and mood only while the school collects them', async () => {
+    expect((await call('guardian', 'GET', '/api/pulse/people/a?role=guardian&sectionId=section')).body.collection).toEqual({ wellbeing: true });
+    expect((await submit('guardian', { kind: 'sleep', quality: 'somewhat_tired', hours: 7.5, note: '' })).status).toBe(200);
+    expect((await call('admin', 'POST', '/api/pulse/settings/wellbeing', { schoolId: 'school', enabled: false })).status).toBe(200);
+    expect((await submit('guardian', { kind: 'mood', description: 'Quiet before school', note: '' })).status).toBe(400);
+    expect((await call('teacher', 'POST', '/api/pulse/settings/wellbeing', { schoolId: 'school', enabled: true })).status).toBe(403);
+    await call('admin', 'POST', '/api/pulse/settings/wellbeing', { schoolId: 'school', enabled: true });
+    expect((await submit('student', { kind: 'sleep', quality: 'rested', hours: null, note: '' })).status).toBe(400);
+  });
+  it('shows a family item to the student only when the family shares it, read-only', async () => {
+    const shared = await submit('guardian', { kind: 'home_strategy', strategy: 'Practised one example together', observedOutcome: 'Finished the next one alone' }, 'teacher_and_student');
+    const privateItem = await submit('guardian', { kind: 'family_observation', observation: 'Busy week at home', context: '' });
+    expect((await submit('student', { kind: 'reflection', whatHappened: 'Tried the example', whatHelped: '' }, 'teacher_and_student')).status).toBe(400);
+    const seen = (await call('student', 'GET', '/api/pulse/contributions?studentId=a&sectionId=section')).body as Array<{ id: string; own: boolean; sharedView: boolean }>;
+    expect(seen.find((c) => c.id === shared.body.id)).toMatchObject({ own: false, sharedView: true });
+    expect(seen.some((c) => c.id === privateItem.body.id)).toBe(false);
+    expect((await call('student', 'POST', `/api/pulse/contributions/${shared.body.id}/withdraw`, { expectedRevision: 1 })).status).toBe(403);
+  });
+});
+
+describe('Guide and reports across a learner’s history', () => {
+  it('lets history kinds cite several sessions of one class, keeps lesson kinds to one session, and support to one student', async () => {
+    const open = async (date: string) => (await call('teacher', 'POST', '/api/pulse/sessions', { requestId: newId(), sectionId: 'section', date, topic: 'Area', objective: '', contextTags: [] })).body.id as string;
+    const [s1, s2] = [await open('2026-11-02'), await open('2026-11-03')];
+    const event = async (sessionId: string, studentId: string) => (await call('teacher', 'POST', '/api/pulse/events', { requestId: newId(), sessionId, studentId, source: 'teacher_tap', observedAt: new Date().toISOString(), observation: { kind: 'check_in', observation: 'Asked for the directions again', note: '' }, confirmed: true })).body as { id: string; revision: number };
+    const [a1, a2, b2] = [await event(s1, 'a'), await event(s2, 'a'), await event(s2, 'b')];
+    const ref = (e: { id: string; revision: number }) => ({ eventId: e.id, revision: e.revision });
+    const support = await call('teacher', 'POST', '/api/pulse/drafts', { sessionId: s2, kind: 'support_recommendation', sources: [ref(a1), ref(a2)] });
+    expect(support.status).toBe(200);
+    await handle.ctx.queue.drain();
+    const ready = await call('teacher', 'GET', `/api/pulse/drafts/${support.body.id}`);
+    expect(ready.body.draft.generationState).toBe('ready');
+    expect(ready.body.revisions[0].content.options.length).toBeGreaterThanOrEqual(2);
+    expect((await call('teacher', 'POST', `/api/pulse/drafts/${support.body.id}/approve`, { expectedRevision: 1, audience: 'teacher' })).status).toBe(200);
+    const profile = await call('teacher', 'GET', '/api/pulse/people/a?role=teacher&sectionId=section');
+    expect(profile.body.interventions.supports).toEqual(expect.arrayContaining([expect.objectContaining({ draftId: support.body.id, kind: 'support_recommendation' })]));
+    expect((await call('guardian', 'GET', '/api/pulse/people/a?role=guardian&sectionId=section')).body.interventions).toBeNull();
+    expect((await call('teacher', 'POST', '/api/pulse/drafts', { sessionId: s2, kind: 'sst_report', sources: [ref(a1), ref(a2)] })).status).toBe(200);
+    expect((await call('teacher', 'POST', '/api/pulse/drafts', { sessionId: s2, kind: 'do_now', sources: [ref(a1), ref(a2)] })).status).toBe(409);
+    expect((await call('teacher', 'POST', '/api/pulse/drafts', { sessionId: s2, kind: 'support_recommendation', sources: [ref(a2), ref(b2)] })).status).toBe(400);
+  });
+});
+
+describe('bulk Teacher Confirm', () => {
+  it('approves each exact version through the single-item path and reports failures per item', async () => {
+    const session = (await call('teacher', 'POST', '/api/pulse/sessions', { requestId: newId(), sectionId: 'section', date: '2026-11-10', topic: 'Volume', objective: '', contextTags: [] })).body.id as string;
+    const make = async (strength: string) => {
+      const e = (await call('teacher', 'POST', '/api/pulse/events', { requestId: newId(), sessionId: session, studentId: 'b', source: 'teacher_tap', observedAt: new Date().toISOString(), observation: { kind: 'praise', strength, note: '' }, confirmed: true })).body;
+      return (await call('teacher', 'POST', '/api/pulse/drafts', { sessionId: session, kind: 'positive_note', sources: [{ eventId: e.id, revision: e.revision }] })).body.id as string;
+    };
+    const [one, two] = [await make('Helped a classmate'), await make('Explained their reasoning')];
+    await handle.ctx.queue.drain();
+    const result = await call('teacher', 'POST', '/api/pulse/drafts/bulk', { decision: 'approve', items: [{ id: one, expectedRevision: 1 }, { id: two, expectedRevision: 3 }] });
+    expect(result.body.results).toEqual([{ id: one, ok: true }, expect.objectContaining({ id: two, ok: false })]);
+    const [a, b] = [await call('teacher', 'GET', `/api/pulse/drafts/${one}`), await call('teacher', 'GET', `/api/pulse/drafts/${two}`)];
+    expect(a.body.draft.reviewState).toBe('approved'); expect(a.body.publications[0].audience).toBe('teacher');
+    expect(b.body.draft.reviewState).toBe('suggested');
+    expect((await call('guardian', 'POST', '/api/pulse/drafts/bulk', { decision: 'discard', items: [{ id: two, expectedRevision: 1 }] })).body.results[0].ok).toBe(false);
+  });
+});
+
+describe('retention policy, portability and erasure', () => {
+  it('applies the school’s pending-retention window to new drafts', async () => {
+    expect((await call('teacher', 'POST', '/api/pulse/settings/retention', { schoolId: 'school', pendingRetentionDays: 5, memoryWindowDays: 90 })).status).toBe(403);
+    expect((await call('admin', 'POST', '/api/pulse/settings/retention', { schoolId: 'school', pendingRetentionDays: 5, memoryWindowDays: 90 })).status).toBe(200);
+    const session = (await call('teacher', 'POST', '/api/pulse/sessions', { requestId: newId(), sectionId: 'section', date: '2026-11-20', topic: 'Graphs', objective: '', contextTags: [] })).body.id as string;
+    const e = (await call('teacher', 'POST', '/api/pulse/events', { requestId: newId(), sessionId: session, studentId: 'a', source: 'teacher_tap', observedAt: new Date().toISOString(), observation: participation, confirmed: true })).body;
+    const draft = (await call('teacher', 'POST', '/api/pulse/drafts', { sessionId: session, kind: 'positive_note', sources: [{ eventId: e.id, revision: e.revision }] })).body.id as string;
+    const [row] = await handle.ctx.db.select().from(classroomDrafts).where(eq(classroomDrafts.id, draft));
+    const days = (row!.expiresAt.getTime() - Date.now()) / 86400000;
+    expect(days).toBeGreaterThan(4.9); expect(days).toBeLessThan(5.1);
+    expect((await call('teacher', 'GET', '/api/pulse/people/a?role=teacher&sectionId=section')).body.memoryWindowDays).toBe(90);
+    await call('admin', 'POST', '/api/pulse/settings/retention', { schoolId: 'school', pendingRetentionDays: 30, memoryWindowDays: 120 });
+  });
+  it('exports one learner’s record and erases it only for an administrator who types the name', async () => {
+    expect((await call('teacher', 'GET', '/api/pulse/learners/b/export')).status).toBe(403);
+    const exported = await call('admin', 'GET', '/api/pulse/learners/b/export');
+    expect(exported.body.format).toBe('pulsera.learner-record.v1');
+    expect(exported.body.observations.length).toBeGreaterThan(0);
+    expect(JSON.stringify(exported.body)).not.toContain('Robin');
+    expect((await call('admin', 'POST', '/api/pulse/learners/b/erase', { confirm: 'Casey' })).status).toBe(400);
+    const erased = await call('admin', 'POST', '/api/pulse/learners/b/erase', { confirm: 'Casey Example' });
+    expect(erased.status).toBe(200);
+    expect(erased.body.observations).toBeGreaterThan(0);
+    const [link] = await handle.ctx.db.select().from(learnerLinks).where(eq(learnerLinks.studentId, 'b'));
+    expect(await handle.ctx.db.select().from(eventRevisions).where(eq(eventRevisions.learnerKey, link!.learnerKey))).toHaveLength(0);
+    const after = await call('admin', 'GET', '/api/pulse/learners/b/export');
+    expect(after.body.observations).toHaveLength(0); expect(after.body.approvedArtifacts).toHaveLength(0);
+    const [entry] = await handle.ctx.db.select().from(auditEvents).where(eq(auditEvents.action, 'learner.erase'));
+    expect(JSON.stringify(entry!.metadata)).not.toContain('Helped a classmate');
+  });
+});
+
+describe('voice capture behind an approved provider boundary', () => {
+  const audio = Buffer.from('synthetic-audio-bytes-not-a-real-recording');
+  const transcribe = (who: 'teacher' | 'guardian') => server.inject({ method: 'POST', url: '/api/pulse/voice/transcribe?sectionId=section', headers: { authorization: `Test ${ids[who]}`, 'content-type': 'audio/webm' }, payload: audio });
+  it('stays off until a school approval is recorded, then transcribes without retaining audio', async () => {
+    expect((await call('teacher', 'GET', '/api/pulse/voice/status?sectionId=section')).body.enabled).toBe(false);
+    expect((await transcribe('teacher')).statusCode).toBe(409);
+    expect((await call('teacher', 'POST', '/api/pulse/voice/approvals', { schoolId: 'school', approved: true, provider: 'OpenAI', approvedByName: 'Dr. Lee', approvedByTitle: 'Data protection lead', policyReference: 'Policy 4.2' })).status).toBe(403);
+    expect((await call('admin', 'POST', '/api/pulse/voice/approvals', { schoolId: 'school', approved: true, provider: 'OpenAI' })).status).toBe(400);
+    expect((await call('admin', 'POST', '/api/pulse/voice/approvals', { schoolId: 'school', approved: true, provider: 'OpenAI', approvedByName: 'Dr. Lee', approvedByTitle: 'Data protection lead', policyReference: 'Policy 4.2' })).status).toBe(200);
+    expect((await call('teacher', 'GET', '/api/pulse/voice/status?sectionId=section')).body).toMatchObject({ enabled: true, approval: { provider: 'OpenAI', approvedBy: 'Dr. Lee, Data protection lead' } });
+    const res = await transcribe('teacher');
+    expect(res.statusCode).toBe(200);
+    expect(res.json().transcript).toContain('partner');
+    const [log] = await handle.ctx.db.select().from(egressLog).where(eq(egressLog.surface, 'voice_transcription'));
+    expect(log!.input).toContain('not retained');
+    expect(log!.input).not.toContain('synthetic-audio');
+    expect((await transcribe('guardian')).statusCode).toBe(403);
+    await call('admin', 'POST', '/api/pulse/voice/approvals', { schoolId: 'school', approved: false });
+    expect((await call('teacher', 'GET', '/api/pulse/voice/status?sectionId=section')).body.enabled).toBe(false);
   });
 });

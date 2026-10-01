@@ -20,7 +20,7 @@ const RATINGS = [
  * strategies, progress, positive feedback, and a self-check. Nothing about other students, no
  * teacher notes, no hypotheses, no raw pattern candidates (enforced by the API, not by this UI).
  */
-export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = {}) {
+export function StudentHome({ selectedCaseKey, embedded }: { selectedCaseKey?: string; embedded?: boolean } = {}) {
   const qc = useQueryClient();
   const { me } = useAuth();
   const cases = useQuery({ queryKey: ['cases'], queryFn: () => api.get<CaseListItem[]>('/api/cases') });
@@ -59,7 +59,7 @@ export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = 
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          {selectedCaseKey ? <h3 className="text-xl font-bold tracking-tight">Your support goals</h3> : <h1 className="text-3xl font-bold tracking-tight">Hi {firstName} 👋</h1>}
+          {embedded ? <h2 className="text-xl font-bold tracking-tight">My goals</h2> : selectedCaseKey ? <h3 className="text-xl font-bold tracking-tight">Your support goals</h3> : <h1 className="text-3xl font-bold tracking-tight">Hi {firstName} 👋</h1>}
           <p className="mt-1 text-muted">Here are your goals and how it's going.</p>
         </div>
         {recentChecks.length > 0 && (
@@ -101,7 +101,10 @@ export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = 
                   <h2 className="text-lg font-semibold">{g.targetBehavior}</h2>
                   <Badge tone={g.status === 'active' ? 'success' : 'neutral'}>{g.status}</Badge>
                 </div>
-                <p className="mt-1 text-sm text-muted">{g.observableDefinition}</p>
+                <div className="mt-1 flex items-start gap-4">
+                  <p className="flex-1 text-sm text-muted">{g.observableDefinition}</p>
+                  <GoalRing checks={(g.progress?.selfChecks ?? []).slice(-7)} />
+                </div>
                 <div className="mt-2">
                   {g.target?.status === 'proposed' && <Badge tone="info">Aiming for {g.target.value} {g.target.unit}</Badge>}
                   {g.target?.status === 'established' && <Badge tone="primary">Goal: {g.target.value} {g.target.unit}</Badge>}
@@ -118,7 +121,7 @@ export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = 
         ))}
       </Stagger>
 
-      {strategies.length > 0 && (
+      {!embedded && strategies.length > 0 && (
         <Card>
           <CardBody className="pt-5">
             <h2 className="flex items-center gap-2 text-[15px] font-semibold">
@@ -180,7 +183,7 @@ export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = 
         </CardBody>
       </Card>
 
-      <div className="pb-6 text-center">
+      {!embedded && <div className="pb-6 text-center">
         {flagOpen ? (
           <Card>
             <CardBody className="pt-5">
@@ -201,7 +204,29 @@ export function StudentHome({ selectedCaseKey }: { selectedCaseKey?: string } = 
             I need help with something
           </button>
         )}
+      </div>}
+    </div>
+  );
+}
+
+/**
+ * A goal's ring is the learner's own measure: the share of their last (up to seven) check-ins on
+ * this goal rated "Yes!". Under three check-ins there is not enough to show, and it says so.
+ */
+function GoalRing({ checks }: { checks: Array<{ value: number }> }) {
+  if (checks.length < 3) {
+    return (
+      <div className="flex w-20 shrink-0 flex-col items-center text-center">
+        <div className="flex size-16 items-center justify-center rounded-full border-[6px] border-dashed border-border text-xs font-semibold text-subtle">{checks.length}/3</div>
+        <span className="mt-1 text-[10px] leading-tight text-muted">check-ins to show progress</span>
       </div>
+    );
+  }
+  const yes = checks.filter((c) => c.value >= 3).length;
+  return (
+    <div className="flex w-20 shrink-0 flex-col items-center text-center">
+      <ProgressRing value={(yes / checks.length) * 100} size={64} tone="success" label={<span className="text-xs">{yes}/{checks.length}</span>} />
+      <span className="mt-1 text-[10px] leading-tight text-muted">recent check-ins went well</span>
     </div>
   );
 }

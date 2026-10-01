@@ -9,11 +9,13 @@ import { EVAL_JUDGE_V1 } from './eval_judge.v1';
 import { CLASSROOM_DRAFT_V1 } from './classroom_draft.v1';
 import { CLASSROOM_DRAFT_V2 } from './classroom_draft.v2';
 import { CLASSROOM_DRAFT_V3 } from './classroom_draft.v3';
+import { CLASSROOM_DRAFT_V4 } from './classroom_draft.v4';
 
 /**
  * The prompt registry seed (docs/03). Files are immutable; a new version is a new file with a
- * changelog. The API copies these into the prompt_versions table on first boot and promotion
- * happens there (gated on a passing eval run), so `status` here is only the initial state.
+ * changelog. The API copies these into the prompt_versions table on boot and promotion happens
+ * there (gated on a passing eval run). `status: 'active'` marks the version whose live eval passed
+ * when it was written; it becomes active wherever its surface has no active version yet.
  *
  * `model: "default"` resolves from environment at call time (OPENAI_MODEL /
  * OPENAI_CLASSIFIER_MODEL) so a model upgrade is a config change that re-runs the evals, and a
@@ -36,7 +38,16 @@ export const PROMPT_SEEDS: ReadonlyArray<Omit<PromptVersion, 'createdAt'>> = [
     id: 'classroom_draft.v3', surface: 'classroom_draft', version: 3, body: CLASSROOM_DRAFT_V3,
     model: 'default', params: { reasoningEffort: null, maxTokens: 12000 },
     changelog: 'Responds to live v2 evaluation failures: copy service-formatted evidence exactly and keep limitations free of prohibited causal/determination language. Requires passing live classroom evals before promotion.',
-    createdBy: 'system', status: 'draft',
+    // Passed 15/15 live on gpt-5.6-terra: docs/evidence/classroom-v3-live-2026-09-30.json. Superseded by v4.
+    createdBy: 'system', status: 'retired',
+  },
+  {
+    id: 'classroom_draft.v4', surface: 'classroom_draft', version: 4, body: CLASSROOM_DRAFT_V4,
+    model: 'default', params: { reasoningEffort: null, maxTokens: 12000 },
+    changelog: 'Adds support_recommendation (2–4 low-intensity classroom options plus how to involve the student in choosing) and treats free-form teacher notes as observed text. Requires passing live classroom evals before promotion.',
+    // Passed 17/17 live on gpt-5.6-terra (suite classroom.v3): docs/evidence/classroom-v4-live-2026-10-01.json.
+    // An earlier run the same day passed 16/17 (fba_observations paraphrased evidence): …-run1.json.
+    createdBy: 'system', status: 'active',
   },
   {
     id: 'plan_generation.v1',

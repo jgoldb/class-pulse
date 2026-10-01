@@ -21,7 +21,8 @@ export function TeacherShell({ surface }: { surface: 'teacher' | 'support' }) {
     <AppShell
       surface={surface}
       counts={counts}
-      primaryAction={
+      // Teachers capture from Class Pulse; opening a support case is a Support-surface action.
+      primaryAction={surface === 'teacher' ? undefined :
         <Link to={`${base}/intake`}>
           <Button size="icon" aria-label="New intake">
             <Plus />

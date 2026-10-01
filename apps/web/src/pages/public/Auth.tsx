@@ -1,29 +1,23 @@
 import { SignIn, SignUp } from '@clerk/react';
 import { Link, useLocation, useSearchParams } from 'react-router';
-import { Activity } from 'lucide-react';
+import { Brand } from '../../components/Brand';
 import { FadeIn } from '../../components/ui';
 import { recallCheckout } from '../../lib/checkout';
 
 function AuthFrame({ children, side }: { children: React.ReactNode; side: React.ReactNode }) {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.1fr_1fr]">
-      <div className="hidden flex-col justify-between bg-[radial-gradient(ellipse_at_top_left,var(--primary-soft),var(--bg)_60%)] p-10 lg:flex">
+      <div className="hidden flex-col justify-between bg-[radial-gradient(ellipse_at_top_left,color-mix(in_oklch,var(--brand-blue)_18%,transparent),transparent_55%),radial-gradient(ellipse_at_bottom_right,color-mix(in_oklch,var(--brand-violet)_14%,transparent),transparent_55%)] p-10 lg:flex">
         <Link to="/" className="flex items-center gap-2.5">
-          <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
-            <Activity className="size-4" />
-          </span>
-          <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
+          <Brand />
         </Link>
         <div className="max-w-md">{side}</div>
-        <div className="text-xs text-subtle">Names never reach the model. Every decision stays with a person.</div>
+        <div className="text-xs text-subtle">Nothing becomes a record until a teacher approves it.</div>
       </div>
       <div className="flex items-center justify-center p-6">
         <FadeIn className="w-full max-w-md">
           <Link to="/" className="mb-6 flex items-center gap-2.5 lg:hidden">
-            <span className="inline-flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-sm">
-              <Activity className="size-4" />
-            </span>
-            <span className="text-[15px] font-bold tracking-tight">Pulsera</span>
+            <Brand />
           </Link>
           {children}
         </FadeIn>
@@ -40,7 +34,7 @@ export function SignInPage() {
       side={
         <>
           <h1 className="text-3xl font-bold tracking-tight">Welcome back.</h1>
-          <p className="mt-3 text-muted">Sign in with the account you were invited to, or the one you started a workspace with. Teachers, support staff, students and families each see only what their role allows.</p>
+          <p className="mt-3 text-muted">Your classroom, ready for the day. Teachers, support staff, students and families each see only what their role allows.</p>
         </>
       }
     >

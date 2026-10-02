@@ -15,15 +15,21 @@ test('live classroom capture and family contribution retain source attribution a
     const prompt = admin.getByRole('row').filter({ has: admin.getByText('classroom_draft.v4', { exact: true }) });
     await expect(prompt.getByText('active', { exact: true })).toBeVisible();
     await signInAs(teacher, 'teacher');
+    // Choose the class the way a teacher does, from the top bar: the default follows period order,
+    // and the teacher may teach more than one class.
+    await teacher.getByTestId('class-selector').click();
+    await teacher.getByRole('menuitem', { name: /Period 3 Science/ }).click();
     // Today's session reopens automatically on a rerun against the same seed, so wait for the
     // page to settle on either the session bar or the open-class form before deciding.
-    await expect(teacher.getByRole('button', { name: 'Open class', exact: true }).or(teacher.getByRole('button', { name: /^Session/ }))).toBeVisible();
-    if (await teacher.getByRole('button', { name: 'Open class', exact: true }).isVisible()) {
+    await expect(teacher.getByRole('button', { name: 'Start class', exact: true }).or(teacher.getByRole('button', { name: /^Sessions/ }))).toBeVisible();
+    if (await teacher.getByRole('button', { name: 'Start class', exact: true }).isVisible()) {
       await teacher.getByLabel('Lesson topic').fill('Fractions');
-      await teacher.getByRole('button', { name: 'Open class', exact: true }).click();
+      await teacher.getByRole('button', { name: 'Start class', exact: true }).click();
     }
     await teacher.getByRole('option', { name: /Avery Synthetic/ }).click();
-    await teacher.getByRole('button', { name: 'Participation', exact: true }).click();
+    // A rerun may find the class ended by an earlier run; resume it before capturing.
+    if (await teacher.getByRole('button', { name: 'Resume class' }).isVisible()) await teacher.getByRole('button', { name: 'Resume class' }).click();
+    await teacher.getByRole('button', { name: 'Participated', exact: true }).click();
     const event = teacher.getByRole('listitem').filter({ hasText: 'Avery Synthetic' }).filter({ hasText: 'Contributed' }).first();
     await expect(event).toBeVisible();
     await event.getByRole('button', { name: /More actions/ }).click();
@@ -35,12 +41,13 @@ test('live classroom capture and family contribution retain source attribution a
     await expect(corrected).toBeVisible();
     await corrected.getByRole('button', { name: /Parent communication draft/ }).click();
     await expect(corrected.getByText('Family message', { exact: true })).toBeVisible();
-    await teacher.getByRole('link', { name: 'Open drafts', exact: true }).click();
+    await teacher.getByRole('link', { name: 'Open Drafts', exact: true }).last().click();
     await expect(teacher).toHaveURL(/\/teacher\/drafts$/);
-    await teacher.getByRole('button', { name: /Family message/ }).first().click();
+    await teacher.getByRole('button', { name: /^Review Family message/ }).first().click();
     await expect(teacher.getByRole('button', { name: 'Approve version 1' })).toBeVisible({ timeout: 180_000 });
     await teacher.getByRole('radio', { name: 'Family' }).click();
     await teacher.getByRole('button', { name: 'Approve version 1' }).click();
+    await teacher.getByRole('button', { name: 'Confirm approval' }).click();
     await teacher.getByRole('button', { name: 'Share approved version in family portal' }).click();
     await expect(teacher.getByRole('button', { name: 'Remove from portal' })).toBeVisible();
     await signInAs(family, 'guardian');

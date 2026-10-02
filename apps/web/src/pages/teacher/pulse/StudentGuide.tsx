@@ -95,39 +95,3 @@ export function StudentGuide({ firstName, history }: { firstName: string; histor
     </Card>
   );
 }
-
-/**
- * Pulsera Guide™ in the class's context: practice groups proposed from today's needs-practice
- * evidence, and Tomorrow Ready on demand.
- */
-export function ClassGuide<T extends { status: string; studentId: string; observation: ClassroomObservation }>({ events, nameOf, busy, onDraft, onPrepare }: { events: T[]; nameOf(id: string): string; busy: boolean; onDraft(kind: ArtifactKind, sources: T[]): Promise<boolean>; onPrepare(): void }) {
-  const practice = events.filter((e) => e.status === 'confirmed' && ((e.observation.kind === 'understanding' && e.observation.evidence === 'needs_practice') || (e.observation.kind === 'exit_ticket' && e.observation.assessment === 'needs_practice')));
-  const groups = [...practice.reduce((m, e) => { const c = 'concept' in e.observation ? e.observation.concept.trim() : ''; const k = c.toLowerCase(); if (c) m.set(k, { concept: c, items: [...(m.get(k)?.items ?? []), e] }); return m; }, new Map<string, { concept: string; items: typeof practice }>()).values()]
-    .map((g) => ({ ...g, students: [...new Set(g.items.map((e) => e.studentId))] }));
-  return (
-    <Card>
-      <CardBody className="space-y-3 pt-5">
-        <div className="flex items-start gap-2.5">
-          <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-proposal-soft text-proposal"><Sparkles className="size-4" /></span>
-          <div><h2 className="text-[15px] font-semibold">Pulsera Guide™ for this class</h2><p className="text-xs text-muted">Suggestions from today’s confirmed observations. Each one is a draft for you to review.</p></div>
-        </div>
-        <div className="space-y-2">
-          {groups.map((g) => {
-            const ok = g.students.length >= 2 && g.students.length <= 8;
-            return (
-              <div key={g.concept} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1"><span className="font-medium">{g.concept}</span> · {g.students.length} student{g.students.length === 1 ? '' : 's'} need practice<span className="block truncate text-xs text-muted">{g.students.map(nameOf).join(', ')}</span></span>
-                <Button size="sm" variant="soft" disabled={!ok || busy} title={ok ? undefined : 'A practice group needs 2–8 students on one concept'} onClick={() => void onDraft('small_group', g.items)}><Sparkles />Suggest a small group</Button>
-              </div>
-            );
-          })}
-          {!groups.length && <p className="rounded-lg bg-sunken/60 px-3 py-2 text-sm text-muted">Mark understanding checks or exit tickets “needs practice” and Guide can propose practice groups.</p>}
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
-            <span className="flex-1"><span className="font-medium">Help prepare Tomorrow</span><span className="block text-xs text-muted">Do Now, reteach and groups from this session, ready to review.</span></span>
-            <Button size="sm" variant="secondary" disabled={busy || !events.some((e) => e.status === 'confirmed')} onClick={onPrepare}>Prepare tomorrow</Button>
-          </div>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}

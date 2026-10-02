@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { RosterImportRows } from '@class-pulse/domain';
+import { RosterImportRows, SectionCreate, SectionUpdate } from '@class-pulse/domain';
 import { confirmRosterImport, previewRosterImport } from '../services/roster-import';
 import type { AppContext } from '../context';
 import { forbidden } from '../context';
-import { accessFor, assertResponsibleFor, classroomFor, createSection, createStudent, enrollStudent } from '../services/classroom';
+import { accessFor, assertResponsibleFor, classroomFor, createSection, createStudent, enrollStudent, removeFromSection, setSectionArchived, updateSection } from '../services/classroom';
 import { issueInvitation, revokePendingInvitation } from '../services/invitations';
 
 /**
@@ -34,11 +34,25 @@ export function registerClassroomRoutes(app: FastifyInstance, ctx: AppContext) {
     return confirmRosterImport(ctx, req.actor!, body.sectionId, body.rows);
   });
 
-  app.post('/api/classroom/sections', async (req) => {
-    const body = z
-      .object({ name: z.string().min(1).max(120), gradeLevel: z.string().min(1).max(20), periodTag: z.string().max(40).nullable().optional(), schoolId: z.string().nullable().optional() })
-      .parse(req.body);
-    return createSection(ctx, req.actor!, { name: body.name, gradeLevel: body.gradeLevel, periodTag: body.periodTag ?? null, schoolId: body.schoolId ?? null });
+  app.post('/api/classroom/sections', async (req) => createSection(ctx, req.actor!, SectionCreate.parse(req.body)));
+
+  /**
+   * Edit a class in place (Pulsera UX spec §9.5). The teacher must teach the section; ownership is
+   * not editable here — reassigning who teaches a class stays with an administrator.
+   */
+  app.patch('/api/classroom/sections/:sectionId', async (req) => {
+    const { sectionId } = z.object({ sectionId: z.string() }).parse(req.params);
+    return updateSection(ctx, req.actor!, sectionId, SectionUpdate.parse(req.body));
+  });
+  app.post('/api/classroom/sections/:sectionId/archive', async (req) => {
+    const { sectionId } = z.object({ sectionId: z.string() }).parse(req.params);
+    const { archived } = z.object({ archived: z.boolean() }).strict().parse(req.body);
+    return setSectionArchived(ctx, req.actor!, sectionId, archived);
+  });
+  /** Take a student off this roster. Their records stay; only the enrollment goes. */
+  app.delete('/api/classroom/sections/:sectionId/students/:studentId', async (req) => {
+    const { sectionId, studentId } = z.object({ sectionId: z.string(), studentId: z.string() }).parse(req.params);
+    return removeFromSection(ctx, req.actor!, sectionId, studentId);
   });
 
   app.post('/api/classroom/students', async (req) => {

@@ -1,9 +1,9 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { newId } from '@class-pulse/domain';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { newId, type SectionCreate, type SectionUpdate } from '@class-pulse/domain';
 import type { Actor, AppContext } from '../context';
-import { badRequest, forbidden, notFound } from '../context';
+import { badRequest, conflict, forbidden, notFound } from '../context';
 import type { Db } from '../db/client';
-import { classSections, invitations, roleAssignments, schools, sectionEnrollments, students, users } from '../db/schema';
+import { classSections, classSessions, classroomEvents, invitations, roleAssignments, schools, sectionEnrollments, students, users } from '../db/schema';
 import { audit } from './audit';
 
 /**
@@ -66,9 +66,54 @@ export async function teacherSchoolId(db: Db, actor: Actor, requested?: string |
   return schoolIds[0]!;
 }
 
+export interface SectionView {
+  id: string; name: string; courseName: string | null; gradeLevel: string; periodTag: string | null; room: string | null; accent: string | null;
+  schoolId: string; archivedAt: Date | null; updatedAt: Date;
+  /** Everyone who teaches it. Shown read-only: reassigning a class is an administrator's call. */
+  teachers: Array<{ id: string; name: string }>;
+  /** Today's status in the school's timezone, from the actor's own sessions. */
+  today: { status: 'not_started' | 'in_progress' | 'complete'; sessionId: string | null; observations: number };
+}
+
+const todayIn = (timezone: string, now: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+
+/** Section rows shaped for the Classes page: teachers and today's status attached. */
+async function sectionViews(ctx: AppContext, actor: Actor, sections: Array<typeof classSections.$inferSelect>, schoolRows: Array<typeof schools.$inferSelect>): Promise<SectionView[]> {
+  if (!sections.length) return [];
+  const ids = sections.map((s) => s.id);
+  const teacherRows = await ctx.db
+    .select({ sectionId: roleAssignments.sectionId, id: users.id, name: users.displayName })
+    .from(roleAssignments)
+    .innerJoin(users, eq(users.id, roleAssignments.userId))
+    .where(and(inArray(roleAssignments.sectionId, ids), eq(roleAssignments.role, 'teacher')));
+  const sessions = await ctx.db
+    .select({ id: classSessions.id, sectionId: classSessions.sectionId, date: classSessions.date, endedAt: classSessions.endedAt })
+    .from(classSessions)
+    .where(and(inArray(classSessions.sectionId, ids), eq(classSessions.teacherId, actor.userId)))
+    .orderBy(desc(classSessions.createdAt));
+  const todays = sections.map((s) => {
+    const tz = schoolRows.find((x) => x.id === s.schoolId)?.timezone ?? 'UTC';
+    return sessions.find((x) => x.sectionId === s.id && x.date === todayIn(tz, ctx.now())) ?? null;
+  });
+  const sessionIds = todays.flatMap((t) => (t ? [t.id] : []));
+  const events = sessionIds.length
+    ? await ctx.db.select({ sessionId: classroomEvents.sessionId }).from(classroomEvents).where(and(inArray(classroomEvents.sessionId, sessionIds), eq(classroomEvents.createdBy, actor.userId), ne(classroomEvents.status, 'withdrawn')))
+    : [];
+  return sections.map((s, i) => {
+    const t = todays[i];
+    const teachers = [...new Map(teacherRows.filter((r) => r.sectionId === s.id).map((r) => [r.id, { id: r.id, name: r.name }])).values()];
+    const status: SectionView['today']['status'] = !t ? 'not_started' : t.endedAt ? 'complete' : 'in_progress';
+    return {
+      id: s.id, name: s.name, courseName: s.courseName, gradeLevel: s.gradeLevel, periodTag: s.periodTag, room: s.room, accent: s.accent,
+      schoolId: s.schoolId, archivedAt: s.archivedAt, updatedAt: s.updatedAt, teachers,
+      today: { status, sessionId: t?.id ?? null, observations: t ? events.filter((e) => e.sessionId === t.id).length : 0 },
+    };
+  });
+}
+
 export interface ClassroomView {
   schools: Array<{ id: string; name: string }>;
-  sections: Array<{ id: string; name: string; gradeLevel: string; periodTag: string | null; schoolId: string }>;
+  sections: SectionView[];
   students: Array<{ id: string; displayName: string; firstName: string; lastName: string; gradeLevel: string; sectionIds: string[] }>;
   /**
    * Guardian and student access to those students, so the teacher can see who has it: every
@@ -99,7 +144,7 @@ export async function classroomFor(ctx: AppContext, actor: Actor): Promise<Class
   await audit(ctx.db, { actorUserId: actor.userId, actorRole: as, action: 'student.list', targetType: 'student', metadata: { purpose: 'classroom', count: studentRows.length } });
   return {
     schools: schoolRows.map((s) => ({ id: s.id, name: s.name })),
-    sections: sections.map((s) => ({ id: s.id, name: s.name, gradeLevel: s.gradeLevel, periodTag: s.periodTag, schoolId: s.schoolId })),
+    sections: await sectionViews(ctx, actor, sections, schoolRows),
     students: studentRows
       .map((s) => ({
         id: s.id,
@@ -117,16 +162,74 @@ export async function classroomFor(ctx: AppContext, actor: Actor): Promise<Class
   };
 }
 
-/** A new section, taught by the actor. The teacher role assignment is what makes it theirs. */
-export async function createSection(ctx: AppContext, actor: Actor, input: { name: string; gradeLevel: string; periodTag: string | null; schoolId?: string | null }) {
+/**
+ * A new section, taught by the actor. The teacher role assignment is what makes it theirs.
+ * Students typed into the Add Class flow are created in the same transaction, so a class is
+ * never left half-made.
+ */
+export async function createSection(ctx: AppContext, actor: Actor, input: Omit<SectionCreate, 'students'> & { students?: SectionCreate['students'] }) {
   const schoolId = await teacherSchoolId(ctx.db, actor, input.schoolId);
   const id = newId();
+  const created: string[] = [];
   await ctx.db.transaction(async (tx) => {
-    await tx.insert(classSections).values({ id, schoolId, name: input.name, gradeLevel: input.gradeLevel, periodTag: input.periodTag });
+    await tx.insert(classSections).values({ id, schoolId, name: input.name, courseName: input.courseName ?? null, gradeLevel: input.gradeLevel, periodTag: input.periodTag ?? null, room: input.room ?? null, accent: input.accent ?? null });
     await tx.insert(roleAssignments).values({ id: newId(), userId: actor.userId, role: 'teacher', schoolId: null, sectionId: id, studentId: null });
+    for (const st of input.students ?? []) {
+      const studentId = newId();
+      await tx.insert(students).values({ id: studentId, schoolId, firstName: st.firstName, lastName: st.lastName, gradeLevel: st.gradeLevel?.trim() || input.gradeLevel, externalId: null, synthetic: ctx.config.deploymentPosture === 'demonstration' });
+      await tx.insert(sectionEnrollments).values({ sectionId: id, studentId });
+      created.push(studentId);
+    }
   });
   actor.scope.teacherSectionIds.add(id);
-  return { id, schoolId };
+  for (const studentId of created) actor.scope.identifiedStudentIds.add(studentId);
+  await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'section.update', targetType: 'section', targetId: id, metadata: { created: true, students: created.length } });
+  return { id, schoolId, students: created.length };
+}
+
+/**
+ * Edit a section's metadata in place (Pulsera UX spec §9.3–9.5). Only a teacher of the section may
+ * do it, the id never changes, and nothing downstream is rewritten: sessions keep the period tag
+ * they were opened with, so a new period applies to new sessions only.
+ */
+export async function updateSection(ctx: AppContext, actor: Actor, sectionId: string, input: SectionUpdate) {
+  const section = await assertTeachesSection(ctx.db, actor, sectionId);
+  if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== section.updatedAt.getTime()) {
+    throw conflict('This class was changed somewhere else. Reload to see the latest details, then edit again.');
+  }
+  const { expectedUpdatedAt: _expected, ...fields } = input;
+  const changed = (Object.keys(fields) as Array<keyof typeof fields>).filter((k) => fields[k] !== undefined && fields[k] !== section[k]);
+  if (!changed.length) return sectionResponse(section);
+  const [updated] = await ctx.db.update(classSections).set({ ...Object.fromEntries(changed.map((k) => [k, fields[k]])), updatedAt: ctx.now() }).where(eq(classSections.id, section.id)).returning();
+  await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'section.update', targetType: 'section', targetId: section.id, metadata: { changed } });
+  return sectionResponse(updated!);
+}
+
+function sectionResponse(s: typeof classSections.$inferSelect) {
+  return { id: s.id, name: s.name, courseName: s.courseName, gradeLevel: s.gradeLevel, period: s.periodTag, periodTag: s.periodTag, room: s.room, accent: s.accent, archivedAt: s.archivedAt, updatedAt: s.updatedAt };
+}
+
+/** Archive rather than delete: every record stays, the class just stops taking new sessions. */
+export async function setSectionArchived(ctx: AppContext, actor: Actor, sectionId: string, archived: boolean) {
+  const section = await assertTeachesSection(ctx.db, actor, sectionId);
+  if (!!section.archivedAt === archived) return sectionResponse(section);
+  const [updated] = await ctx.db.update(classSections).set({ archivedAt: archived ? ctx.now() : null, updatedAt: ctx.now() }).where(eq(classSections.id, section.id)).returning();
+  await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: archived ? 'section.archive' : 'section.restore', targetType: 'section', targetId: section.id });
+  return sectionResponse(updated!);
+}
+
+/**
+ * Take a student off one of the teacher's rosters. This removes the enrollment only: the student
+ * record, their observations, drafts, approvals and support records all stay, and adding them
+ * back restores the class view of that history. Family access granted onto the child is not
+ * touched; revoking it is its own, visible action.
+ */
+export async function removeFromSection(ctx: AppContext, actor: Actor, sectionId: string, studentId: string) {
+  const section = await assertTeachesSection(ctx.db, actor, sectionId);
+  const removed = await ctx.db.delete(sectionEnrollments).where(and(eq(sectionEnrollments.sectionId, section.id), eq(sectionEnrollments.studentId, studentId))).returning();
+  if (!removed.length) throw notFound('That student is not on this roster');
+  await audit(ctx.db, { actorUserId: actor.userId, actorRole: 'teacher', action: 'roster.remove', targetType: 'student', targetId: studentId, studentId, metadata: { sectionId: section.id } });
+  return { ok: true };
 }
 
 /** A new student on the teacher's own roster. */

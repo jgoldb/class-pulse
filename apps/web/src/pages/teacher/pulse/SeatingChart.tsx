@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus, Sparkles } from 'lucide-react';
 import { Avatar, Button, cn } from '../../../components/ui';
 import { relativeTime } from '../../../lib/utils';
 import { OBSERVATION_META, type ObservationKind } from '../../../lib/pulse';
@@ -31,7 +31,7 @@ export function layoutFor(students: Student[], positions: Seat[], minColumns = 5
 const shortName = (name: string) => { const [first, ...rest] = name.split(' '); return rest.length ? `${first} ${rest.at(-1)![0]}.` : name; };
 
 function summary(a: StudentActivity | undefined) {
-  if (!a || !a.lastAt) return 'No observations yet';
+  if (!a || !a.lastAt) return 'No observations yet today';
   const parts = KIND_ORDER.filter((k) => a.counts[k]).map((k) => `${a.counts[k]} ${OBSERVATION_META[k].label.toLowerCase()}`);
   return `${parts.join(', ')}${a.pending ? `, ${a.pending} awaiting confirmation` : ''}`;
 }
@@ -45,18 +45,19 @@ export function SeatingChart({ students, positions, activity, selected, onSelect
   const ordered = [...students].sort((a, b) => { const x = seatOf(a.id), y = seatOf(b.id); return x.row - y.row || x.column - y.column; });
   return (
     <div className={cn(view === 'chart' && 'overflow-x-auto pb-1')}>
-      {view === 'chart' && <div className="mb-2 flex justify-center"><span className="rounded-full border border-dashed border-border-strong px-4 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle">Front of room</span></div>}
+      {view === 'chart' && <div className="mb-4 flex justify-center"><span className="rounded-full bg-sunken px-4 py-1 text-[11px] font-semibold uppercase tracking-wider text-subtle">Front of room</span></div>}
       <div
         role="listbox"
         aria-label={view === 'chart' ? 'Seating chart' : 'Class roster'}
-        className={cn('grid gap-2', view === 'list' && 'sm:grid-cols-2')}
-        style={view === 'chart' ? { gridTemplateColumns: `repeat(${columns}, minmax(5.75rem, 1fr))`, gridTemplateRows: `repeat(${rows}, auto)` } : undefined}
+        className={cn('grid gap-3', view === 'list' && 'sm:grid-cols-2')}
+        style={view === 'chart' ? { gridTemplateColumns: `repeat(${columns}, minmax(6.25rem, 1fr))`, gridTemplateRows: `repeat(${rows}, auto)` } : undefined}
       >
         {ordered.map((s) => {
           const a = activity.get(s.id);
           const seat = seatOf(s.id);
           const isSelected = selected === s.id;
           const observed = !!a?.lastAt;
+          const kinds = KIND_ORDER.filter((k) => a?.counts[k]);
           return (
             <button
               key={s.id}
@@ -64,28 +65,30 @@ export function SeatingChart({ students, positions, activity, selected, onSelect
               role="option"
               aria-selected={isSelected}
               aria-label={`${s.displayName}. ${summary(a)}`}
+              data-testid={`seat-${s.id}`}
               onClick={() => onSelect(s.id)}
               style={view === 'chart' ? { gridRow: seat.row + 1, gridColumn: seat.column + 1 } : undefined}
               className={cn(
-                'group relative flex min-h-[5.75rem] flex-col rounded-xl border bg-elevated p-2 text-left shadow-xs transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
-                isSelected ? 'border-primary ring-2 ring-primary/25 shadow-md' : 'border-border hover:-translate-y-0.5 hover:border-border-strong hover:shadow-sm',
+                'group relative flex min-h-[5.5rem] flex-col rounded-xl border bg-elevated p-3 text-left shadow-xs transition-[transform,box-shadow,border-color,opacity] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+                isSelected ? 'border-primary shadow-md ring-2 ring-primary/20' : 'border-border hover:-translate-y-0.5 hover:border-border-strong hover:shadow-sm',
                 dimObserved && observed && !isSelected && 'opacity-40',
-                dimObserved && !observed && 'border-dashed border-info',
+                dimObserved && !observed && 'border-dashed border-primary/50',
               )}
             >
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-2">
                 <Avatar name={s.displayName} size="sm" className={cn(view === 'chart' && 'max-2xl:hidden')} />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight">{view === 'chart' ? shortName(s.displayName) : s.displayName}</span>
-                {!!a?.pending && <span className="size-2 shrink-0 rounded-full bg-info ring-2 ring-info/25" title={`${a.pending} awaiting confirmation`} />}
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-tight">{view === 'chart' ? shortName(s.displayName) : s.displayName}</span>
+                {!!a?.pending && <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-ai-soft text-ai-fg" title={`${a.pending} awaiting confirmation`}><Sparkles className="size-2.5" /><span className="sr-only">{a.pending} to confirm</span></span>}
               </span>
-              <span className="mt-2 flex flex-wrap gap-1">
-                {KIND_ORDER.filter((k) => a?.counts[k]).map((k) => {
+              {/* Small indicators, not coloured backgrounds: strengths first, everything else neutral. */}
+              <span className="mt-2 flex flex-wrap gap-x-2 gap-y-1" aria-hidden>
+                {kinds.map((k) => {
                   const meta = OBSERVATION_META[k];
                   const Icon = meta.icon;
-                  return <span key={k} className={cn('inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums', meta.chip)}><Icon className="size-3" />{a!.counts[k]}</span>;
+                  return <span key={k} className="inline-flex items-center gap-1 text-[11px] font-medium tabular-nums text-muted"><span className={cn('size-1.5 rounded-full', meta.dot)} /><Icon className="size-3" />{a!.counts[k]}</span>;
                 })}
               </span>
-              <span className="mt-auto pt-1.5 text-[11px] leading-tight text-muted">{observed ? `${OBSERVATION_META[a!.lastKind!].label} · ${relativeTime(a!.lastAt)}` : 'Not yet observed'}</span>
+              <span className="mt-auto pt-2 text-[11px] leading-tight text-subtle">{observed ? `${OBSERVATION_META[a!.lastKind!].short} · ${relativeTime(a!.lastAt)}` : 'No observations yet today'}</span>
             </button>
           );
         })}

@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { newId } from '@class-pulse/domain';
 import { EVAL_CASES } from '@class-pulse/ai/evals';
 import { createApp, type AppHandle } from './bootstrap';
@@ -11,7 +10,7 @@ import { expirePendingClassroomContent } from './services/pulse-retention';
 import { seedPrompts } from './services/prompts';
 import { expireContributions } from './services/contributions';
 import type { FastifyInstance } from 'fastify';
-import { artifactPublications, auditEvents, promptVersions, cases, caseLinks, classSections, classSessions, classroomDrafts, classroomEgressPayloads, classroomEvents, egressLog, eventRevisions, followUpTasks, jobs, learnerLinks, organizations, roleAssignments, schools, sectionEnrollments, signalProjections, signals, students, tomorrowSchedules, users } from './db/schema';
+import { artifactPublications, auditEvents, promptVersions, cases, caseLinks, classSections, classroomDrafts, classroomEgressPayloads, classroomEvents, egressLog, eventRevisions, followUpTasks, jobs, learnerLinks, organizations, roleAssignments, schools, sectionEnrollments, signalProjections, signals, students, tomorrowSchedules, users } from './db/schema';
 
 let handle: AppHandle, server: FastifyInstance;
 const ids = { teacher: 'teacher', other: 'other', coteacher: 'coteacher', guardian: 'guardian', student: 'student', admin: 'admin' };
@@ -51,16 +50,6 @@ describe('Pulsera classroom foundation', () => {
     expect((await call('teacher', 'POST', '/api/pulse/settings', settings)).status).toBe(403);
     expect((await call('admin', 'POST', '/api/pulse/settings', { ...settings, timezone: 'Mars' })).status).toBe(400);
     expect((await call('admin', 'POST', '/api/pulse/settings', settings)).status).toBe(200);
-  });
-  it('turns existing workspaces on by migration only where every learner is synthetic', async () => {
-    const db = handle.ctx.db;
-    await db.insert(organizations).values([{ id: 'org-synthetic', name: 'Synthetic', pulseraEnabled: false }, { id: 'org-real', name: 'Real', pulseraEnabled: false }]);
-    await db.insert(schools).values([{ id: 'school-synthetic', orgId: 'org-synthetic', name: 'S' }, { id: 'school-real', orgId: 'org-real', name: 'R' }]);
-    await db.insert(students).values([{ id: 'syn', schoolId: 'school-synthetic', firstName: 'Lane', lastName: 'Fixture', gradeLevel: '6' }, { id: 'real', schoolId: 'school-real', firstName: 'Taylor', lastName: 'Person', gradeLevel: '6', synthetic: false }]);
-    const backfill = readFileSync(new URL('../drizzle/0016_pulsera_on_by_default.sql', import.meta.url), 'utf8').split('--> statement-breakpoint')[1]!;
-    await db.execute(sql.raw(backfill));
-    const flags = await db.select({ id: organizations.id, enabled: organizations.pulseraEnabled }).from(organizations).where(inArray(organizations.id, ['org-synthetic', 'org-real']));
-    expect(Object.fromEntries(flags.map((f) => [f.id, f.enabled]))).toEqual({ 'org-synthetic': true, 'org-real': false });
   });
   it('snapshots seating, deduplicates sessions, and rejects reused request IDs', async () => {
     const seats = { expectedVersion: 0, positions: [{ studentId: 'a', row: 0, column: 0 }, { studentId: 'b', row: 0, column: 1 }] };
@@ -147,20 +136,6 @@ describe('Pulsera classroom foundation', () => {
     await handle.ctx.db.delete(roleAssignments).where(eq(roleAssignments.userId, 'coteacher'));
     expect((await call('coteacher', 'GET', `/api/pulse/sessions?sectionId=section`)).status).toBe(403);
     await handle.ctx.db.insert(roleAssignments).values({ id: newId(), userId: 'coteacher', role: 'teacher', sectionId: 'section' });
-  });
-  it('backfills legacy identity links repeatably without adding approvals or changing case provenance', async () => {
-    await handle.ctx.db.insert(cases).values({ caseKey: 'legacy', sectionId: 'section', schoolId: 'school', gradeLevel: '6' });
-    await handle.ctx.db.insert(caseLinks).values({ caseKey: 'legacy', studentId: 'x', createdBy: 'teacher' });
-    const [before] = await handle.ctx.db.select().from(cases).where(eq(cases.caseKey, 'legacy'));
-    const content = readFileSync(new URL('../drizzle/0004_pulsera_classroom_foundation.sql', import.meta.url), 'utf8');
-    const backfill = content.slice(content.indexOf('DO $$'));
-    await handle.ctx.db.execute(sql.raw(backfill));
-    const links = await handle.ctx.db.select().from(learnerLinks);
-    await handle.ctx.db.execute(sql.raw(backfill));
-    expect(await handle.ctx.db.select().from(learnerLinks)).toEqual(links);
-    const [after] = await handle.ctx.db.select().from(cases).where(eq(cases.caseKey, 'legacy'));
-    expect(after).toMatchObject({ ...before, learnerKey: links.find((l) => l.studentId === 'x')!.learnerKey });
-    expect(await handle.ctx.db.select().from(classSessions)).toHaveLength(1);
   });
 });
 
@@ -741,5 +716,93 @@ describe('voice capture behind an approved provider boundary', () => {
     expect((await transcribe('guardian')).statusCode).toBe(403);
     await call('admin', 'POST', '/api/pulse/voice/approvals', { schoolId: 'school', approved: false });
     expect((await call('teacher', 'GET', '/api/pulse/voice/status?sectionId=section')).body.enabled).toBe(false);
+  });
+});
+
+describe('editable class sections (Pulsera UX spec §9)', () => {
+  const send = async (who: keyof typeof ids, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) => {
+    const r = await server.inject({ method, url, headers: { authorization: `Test ${ids[who]}` }, ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }) });
+    return { status: r.statusCode, body: r.json() };
+  };
+  const tap = (session: string, studentId: string) => ({ requestId: newId(), sessionId: session, studentId, source: 'teacher_tap', observedAt: new Date().toISOString(), observation: participation, confirmed: true });
+  let classId = '', session = '', event = '', kid = '';
+  it('creates a class with its first students in one step', async () => {
+    const created = await send('teacher', 'POST', '/api/classroom/sections', { name: '7 ELA - Section 2', courseName: 'English 7', gradeLevel: '7', periodTag: 'period_3', room: '204', accent: 'violet', students: [{ firstName: 'Jules', lastName: 'Fixture' }, { firstName: 'Mika', lastName: 'Sample', gradeLevel: '8' }] });
+    expect(created.status).toBe(200);
+    expect(created.body.students).toBe(2);
+    classId = created.body.id;
+    const view = (await send('teacher', 'GET', '/api/classroom')).body;
+    const mine = view.sections.find((s: { id: string }) => s.id === classId);
+    expect(mine).toMatchObject({ name: '7 ELA - Section 2', courseName: 'English 7', room: '204', accent: 'violet', periodTag: 'period_3', today: { status: 'not_started', observations: 0 } });
+    expect(mine.teachers.map((t: { id: string }) => t.id)).toEqual(['teacher']);
+    kid = view.students.find((s: { displayName: string }) => s.displayName === 'Jules Fixture').id;
+    expect(view.students.find((s: { displayName: string }) => s.displayName === 'Mika Sample').gradeLevel).toBe('8');
+    expect((await send('teacher', 'POST', '/api/classroom/sections', { name: 'Bad', gradeLevel: '7', periodTag: 'lunchtime' })).status).toBe(400);
+  });
+  it('edits name, course, period and room in place without touching history', async () => {
+    const opened = await send('teacher', 'POST', '/api/pulse/sessions', { requestId: newId(), sectionId: classId, date: '2026-10-01', topic: 'Poetry', objective: '', contextTags: ['period_3'] });
+    expect(opened.status).toBe(200);
+    session = opened.body.id;
+    const captured = await send('teacher', 'POST', '/api/pulse/events', tap(session, kid));
+    expect(captured.status).toBe(200);
+    event = captured.body.id;
+    const before = (await send('teacher', 'GET', '/api/classroom')).body.sections.find((s: { id: string }) => s.id === classId);
+    const patch = await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, { name: '7 ELA - Section 3', courseName: 'English Language Arts 7', periodTag: 'period_4', room: '', expectedUpdatedAt: before.updatedAt });
+    expect(patch.status).toBe(200);
+    expect(patch.body).toMatchObject({ id: classId, name: '7 ELA - Section 3', courseName: 'English Language Arts 7', period: 'period_4', room: null });
+    expect(new Date(patch.body.updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(before.updatedAt).getTime());
+    // Same section id, same session, same event; the session keeps the period it was taught in.
+    const detail = await send('teacher', 'GET', `/api/pulse/sessions/${session}`);
+    expect(detail.body.events.map((e: { id: string }) => e.id)).toEqual([event]);
+    expect(detail.body.session.contextTags).toEqual(['period_3']);
+    expect(await handle.ctx.db.select().from(classSections).where(eq(classSections.name, '7 ELA - Section 2'))).toHaveLength(0);
+    const entries = await handle.ctx.db.select().from(auditEvents).where(and(eq(auditEvents.action, 'section.update'), eq(auditEvents.targetId, classId)));
+    const edit = entries.find((e) => (e.metadata as { changed?: string[] }).changed);
+    expect((edit!.metadata as { changed: string[] }).changed.sort()).toEqual(['courseName', 'name', 'periodTag', 'room']);
+  });
+  it('rejects stale edits, invalid metadata, empty patches and anyone who does not teach the class', async () => {
+    expect((await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, { room: '9', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' })).status).toBe(409);
+    expect((await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, { name: '   ' })).status).toBe(400);
+    expect((await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, { periodTag: 'period_99' })).status).toBe(400);
+    expect((await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, {})).status).toBe(400);
+    expect((await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, { schoolId: 'outside' })).status).toBe(400);
+    expect((await send('teacher', 'PATCH', `/api/classroom/sections/${classId}`, { name: '' })).body.error).toMatch(/^Check name/);
+    for (const who of ['other', 'coteacher', 'guardian', 'student', 'admin'] as const) {
+      expect((await send(who, 'PATCH', `/api/classroom/sections/${classId}`, { name: 'Taken over' })).status).toBe(403);
+      expect((await send(who, 'POST', `/api/classroom/sections/${classId}/archive`, { archived: true })).status).toBe(403);
+    }
+    expect((await send('teacher', 'GET', '/api/classroom')).body.sections.find((s: { id: string }) => s.id === classId).name).toBe('7 ELA - Section 3');
+  });
+  it('ends and reopens a session; only its teacher can, and review keeps working after the bell', async () => {
+    expect((await send('teacher', 'POST', `/api/pulse/sessions/${session}/end`, { ended: true })).body.endedAt).toBeTruthy();
+    expect((await send('teacher', 'GET', `/api/pulse/sessions/${session}`)).body.session.endedAt).toBeTruthy();
+    const late = await send('teacher', 'POST', '/api/pulse/events', { ...tap(session, kid), source: 'teacher_text', observation: { kind: 'note', note: 'Finished the stanza after class' }, confirmed: false });
+    expect(late.status).toBe(200);
+    expect((await send('other', 'POST', `/api/pulse/sessions/${session}/end`, { ended: false })).status).toBe(403);
+    expect((await send('teacher', 'POST', `/api/pulse/sessions/${session}/end`, { ended: false })).body.endedAt).toBeNull();
+  });
+  it('removes a student from the roster without deleting their record or history', async () => {
+    expect((await send('other', 'DELETE', `/api/classroom/sections/${classId}/students/${kid}`)).status).toBe(403);
+    expect((await send('teacher', 'DELETE', `/api/classroom/sections/${classId}/students/${kid}`)).status).toBe(200);
+    expect((await send('teacher', 'DELETE', `/api/classroom/sections/${classId}/students/${kid}`)).status).toBe(404);
+    expect((await send('teacher', 'GET', '/api/classroom')).body.students.map((s: { id: string }) => s.id)).not.toContain(kid);
+    expect(await handle.ctx.db.select().from(students).where(eq(students.id, kid))).toHaveLength(1);
+    expect(await handle.ctx.db.select().from(classroomEvents).where(eq(classroomEvents.id, event))).toHaveLength(1);
+    const [removal] = await handle.ctx.db.select().from(auditEvents).where(and(eq(auditEvents.action, 'roster.remove'), eq(auditEvents.targetId, kid)));
+    expect(removal).toBeTruthy();
+    // Putting them back restores the class view of their history.
+    await handle.ctx.db.insert(sectionEnrollments).values({ sectionId: classId, studentId: kid });
+    expect((await send('teacher', 'GET', `/api/pulse/sessions/${session}`)).body.events.map((e: { id: string }) => e.id)).toContain(event);
+  });
+  it('archives instead of deleting: records stay readable, new teaching is refused until restored', async () => {
+    expect((await send('teacher', 'POST', `/api/classroom/sections/${classId}/archive`, { archived: true })).body.archivedAt).toBeTruthy();
+    expect((await send('teacher', 'GET', '/api/pulse/sections')).body.find((s: { id: string }) => s.id === classId).archived).toBe(true);
+    expect((await send('teacher', 'GET', `/api/pulse/sessions/${session}`)).status).toBe(200);
+    expect((await send('teacher', 'POST', '/api/pulse/sessions', { requestId: newId(), sectionId: classId, date: '2026-10-02', topic: 'More poetry', objective: '', contextTags: [] })).status).toBe(409);
+    expect((await send('teacher', 'POST', '/api/pulse/events', tap(session, kid))).status).toBe(409);
+    expect((await send('teacher', 'POST', `/api/classroom/sections/${classId}/archive`, { archived: false })).body.archivedAt).toBeNull();
+    expect((await send('teacher', 'POST', '/api/pulse/events', tap(session, kid))).status).toBe(200);
+    const actions = (await handle.ctx.db.select().from(auditEvents).where(eq(auditEvents.targetId, classId))).map((a) => a.action);
+    expect(actions).toEqual(expect.arrayContaining(['section.archive', 'section.restore']));
   });
 });

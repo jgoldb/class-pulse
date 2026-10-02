@@ -1,16 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { ArrowLeft, Bot, CalendarClock, Check, ClipboardList, Download, FileText, History, Inbox, ListChecks, Pencil, Share2, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { ArrowLeft, Bot, CalendarClock, Check, ClipboardList, Download, FileText, HelpCircle, History, Inbox, ListChecks, MoreHorizontal, Pencil, Share2, Sparkles, Trash2, UserRound } from 'lucide-react';
 import type { ArtifactContent, ArtifactKind, ArtifactSource, ClassroomObservation } from '@class-pulse/domain';
 import { PageHeader } from '../../components/AppShell';
 import { FollowUpForm } from '../../components/FollowUps';
 import { TeacherConfirm } from '../../components/TeacherConfirm';
-import { Avatar, Badge, Button, Callout, Card, CardBody, Dialog, DialogContent, Empty, Input, PageSkeleton, Segmented, Textarea, cn } from '../../components/ui';
+import { Badge, Button, Callout, Dialog, DialogContent, Dropdown, DropdownContent, DropdownItem, DropdownSeparator, DropdownTrigger, Empty, Input, PageSkeleton, Segmented, SheetContent, Stagger, StaggerItem, Textarea, cn } from '../../components/ui';
 import { api, fmtDate, fmtDateTime, humanize } from '../../lib/api';
 import { relativeTime } from '../../lib/utils';
-import { ARTIFACT_META, INBOX_GROUPS, OBSERVATION_META, draftStage, observationText, type InboxGroup } from '../../lib/pulse';
+import { ARTIFACT_AUDIENCE, ARTIFACT_META, INBOX_GROUPS, OBSERVATION_META, draftStage, needsTeacher, observationText, type InboxGroup } from '../../lib/pulse';
 import type { CaseListItem } from '../../lib/types';
 
 type Draft = {
@@ -27,61 +27,73 @@ type Detail = { draft: Draft; revisions: Revision[]; evidence: Array<{ number: n
 
 type Status = 'review' | 'approved' | 'deferred' | 'all';
 const deferred = (d: Draft) => !!d.deferredUntil && new Date(d.deferredUntil) > new Date();
-const needsReview = (d: Draft) => d.reviewState === 'suggested' && !deferred(d);
+const needsReview = (d: Draft) => (d.reviewState === 'suggested' || d.reviewState === 'stale') && !deferred(d);
 
-/** The Draft Inbox: every AI suggestion, grouped by what it is for, behind Teacher Confirm™. */
+/**
+ * The Draft Inbox (visual spec §8): a one-line summary, filter chips, and a card per draft that
+ * reads what happened → what Pulsera drafted → evidence → audience → status. Review opens in a
+ * side panel so the teacher never loses their place in the list. Everything sits behind Teacher
+ * Confirm™; nothing becomes a record until an exact version is approved.
+ */
 export function ClassroomDrafts() {
   const drafts = useQuery({ queryKey: ['classroom-drafts'], queryFn: () => api.get<Draft[]>('/api/pulse/drafts'), refetchInterval: (q) => (q.state.data ?? []).some((d) => ['queued', 'running'].includes(d.generationState)) ? 3000 : 15000 });
   const legacy = useQuery({ queryKey: ['cases'], queryFn: () => api.get<CaseListItem[]>('/api/cases') });
   const planRevisions = useQuery({ queryKey: ['classroom-plan-revisions'], queryFn: () => api.get<Array<{ draftId: string; status: string; invalidatedAt: string | null }>>('/api/pulse/plan-revisions') });
   const [params, setParams] = useSearchParams();
-  const [group, setGroup] = useState<InboxGroup | 'all'>('all');
+  const [group, setGroup] = useState<InboxGroup | 'all'>(() => (INBOX_GROUPS.some((g) => g.id === params.get('group')) ? (params.get('group') as InboxGroup) : 'all'));
   const [status, setStatus] = useState<Status>('review');
   const [bulk, setBulk] = useState<string[] | null>(null);
   const [confirmBulk, setConfirmBulk] = useState<'approve' | 'defer' | 'discard' | null>(null);
+  const [discarding, setDiscarding] = useState<Draft | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const qc = useQueryClient();
   const id = params.get('draft') ?? '';
-  const select = (next: string) => setParams((p) => { const n = new URLSearchParams(p); if (next) n.set('draft', next); else n.delete('draft'); return n; }, { replace: true });
+  const intent = (params.get('intent') ?? '') as '' | 'edit' | 'approve';
+  const select = (next: string, nextIntent?: 'edit' | 'approve') => setParams((p) => { const n = new URLSearchParams(p); if (next) n.set('draft', next); else n.delete('draft'); if (nextIntent) n.set('intent', nextIntent); else n.delete('intent'); return n; }, { replace: true });
   if (drafts.isLoading) return <PageSkeleton />;
   const live = (drafts.data ?? []).filter((d) => d.reviewState !== 'discarded');
-  const byStatus = (d: Draft, s: Status) => s === 'all' || (s === 'review' ? needsReview(d) || ['stale'].includes(d.reviewState) : s === 'approved' ? d.reviewState === 'approved' : deferred(d) && d.reviewState === 'suggested');
+  const byStatus = (d: Draft, s: Status) => s === 'all' || (s === 'review' ? needsReview(d) : s === 'approved' ? d.reviewState === 'approved' : deferred(d) && d.reviewState === 'suggested');
   const rows = live.filter((d) => byStatus(d, status) && (group === 'all' || ARTIFACT_META[d.kind].group === group));
   const count = (g: InboxGroup) => live.filter((d) => ARTIFACT_META[d.kind].group === g && byStatus(d, status)).length;
+  const waiting = live.filter(needsTeacher).filter((d) => !deferred(d)).length;
   const supportItems = [
     ...(planRevisions.data ?? []).filter((d) => !['approved', 'discarded'].includes(d.status)).map((d) => ({ key: d.draftId, to: `/teacher/drafts/${d.draftId}`, label: 'Classroom-informed support plan revision', state: d.invalidatedAt ? 'Source review required' : humanize(d.status) })),
     ...(legacy.data ?? []).filter((c) => c.latestDraft && !c.plan).map((c) => ({ key: c.caseKey, to: `/teacher/drafts/${c.latestDraft!.id}`, label: 'Support plan draft', state: humanize(c.latestDraft!.status) })),
   ];
+  async function decide(d: Draft, decision: 'defer' | 'discard') {
+    try {
+      await api.post(`/api/pulse/drafts/${d.id}/decide`, decision === 'defer' ? { expectedRevision: d.revision, decision, until: new Date(Date.now() + 86400000).toISOString() } : { expectedRevision: d.revision, decision });
+      toast.success(decision === 'defer' ? 'Deferred until tomorrow' : 'Draft discarded', { description: decision === 'defer' ? 'Find it under Deferred.' : 'Your observations are unchanged.' });
+      await qc.invalidateQueries({ queryKey: ['classroom-drafts'] });
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not update the draft'); }
+  }
 
   return (
     <div>
       <PageHeader
-        eyebrow="Teacher Confirm™"
-        title="Drafts"
-        description="What happened, what Pulsera drafted, and the evidence behind it. Nothing becomes a record until you approve an exact version. Approving never sends a message."
+        title={waiting ? `${waiting} ${waiting === 1 ? 'draft needs' : 'drafts need'} your review` : 'You’re all caught up'}
+        description="Pulsera prepares the paperwork; you decide what becomes official. Approving never sends a message."
         actions={<Link to="/teacher"><Button variant="secondary"><ArrowLeft /> Class Pulse</Button></Link>}
       />
-      {drafts.error && <p role="alert">{drafts.error.message}</p>}
+      {drafts.error && <Callout tone="warning" title="Drafts could not load">{drafts.error.message} Refresh to try again.</Callout>}
       {!!supportItems.length && (
-        <Callout tone="primary" title="Support plans awaiting you" className="mb-4">
+        <Callout tone="primary" title="Support plans awaiting you" className="mb-6">
           <ul className="mt-1 space-y-1">{supportItems.map((s) => <li key={s.key}><Link className="font-medium underline-offset-2 hover:underline" to={s.to}>{s.label}</Link> <span className="text-xs opacity-80">· {s.state}</span></li>)}</ul>
         </Callout>
       )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Draft categories">
+          <GroupChip active={group === 'all'} onClick={() => setGroup('all')} label="All" count={live.filter((d) => byStatus(d, status)).length} />
+          {INBOX_GROUPS.map((g) => <GroupChip key={g.id} active={group === g.id} onClick={() => setGroup(g.id)} label={g.label} count={count(g.id)} title={g.hint} />)}
+        </div>
         <Segmented size="sm" value={status} onChange={setStatus} options={[
-          { value: 'review', label: `To review (${live.filter((d) => byStatus(d, 'review')).length})` },
+          { value: 'review', label: 'To review' },
           { value: 'approved', label: 'Approved' },
           { value: 'deferred', label: `Deferred (${live.filter((d) => byStatus(d, 'deferred')).length})` },
           { value: 'all', label: 'All' },
         ]} />
       </div>
-      {(
-        <div className="mb-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Draft categories">
-          <GroupChip active={group === 'all'} onClick={() => setGroup('all')} label="Everything" count={rows.length && group === 'all' ? rows.length : live.filter((d) => byStatus(d, status)).length} />
-          {INBOX_GROUPS.map((g) => <GroupChip key={g.id} active={group === g.id} onClick={() => setGroup(g.id)} label={g.label} count={count(g.id)} />)}
-        </div>
-      )}
 
       <Dialog open={!!confirmBulk} onOpenChange={(o) => !o && !bulkBusy && setConfirmBulk(null)}>
         {confirmBulk && bulk && (
@@ -107,47 +119,56 @@ export function ClassroomDrafts() {
         )}
       </Dialog>
 
-      <div className="grid gap-4 lg:grid-cols-[21rem_minmax(0,1fr)]">
-        <div className={cn('space-y-2', id && 'max-lg:hidden')}>
-          {!rows.length && (
-            <Empty compact icon={<Inbox />} title={status === 'review' ? 'Nothing waiting for you' : 'No drafts here'} description="Confirm observations in Class Pulse and choose what to draft. Suggestions land here for review." />
-          )}
-          {rows.some(reviewable) && (
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {bulk === null
-                ? <Button size="sm" variant="ghost" onClick={() => setBulk([])}><ListChecks />Select several</Button>
-                : <>
-                    <span className="font-medium">{bulk.length} selected</span>
-                    <button type="button" className="text-primary hover:underline" onClick={() => setBulk(rows.filter(reviewable).map((d) => d.id))}>All ready</button>
-                    <button type="button" className="text-muted hover:underline" onClick={() => setBulk(null)}>Done</button>
-                  </>}
+      <Dialog open={!!discarding} onOpenChange={(o) => !o && setDiscarding(null)}>
+        {discarding && (
+          <DialogContent title={`Discard this ${ARTIFACT_META[discarding.kind].label.toLowerCase()}?`} description="The draft is removed from your inbox. The observations it came from are not changed.">
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDiscarding(null)}>Keep it</Button>
+              <Button variant="danger" onClick={() => { const d = discarding; setDiscarding(null); void decide(d, 'discard'); }}><Trash2 /> Discard draft</Button>
             </div>
-          )}
-          {bulk !== null && !!bulk.length && (
-            <div className="sticky top-2 z-10 flex flex-wrap gap-1.5 rounded-lg border border-border bg-elevated p-2 shadow-md">
-              <Button size="sm" onClick={() => setConfirmBulk('approve')}><Check />Approve {bulk.length}</Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmBulk('defer')}><CalendarClock />Tomorrow</Button>
-              <Button size="sm" variant="ghost" className="text-danger-fg" onClick={() => setConfirmBulk('discard')}><Trash2 />Discard</Button>
-            </div>
-          )}
+          </DialogContent>
+        )}
+      </Dialog>
+
+      <div className="space-y-3">
+        {!rows.length && (
+          <Empty icon={<Inbox />} title={status === 'review' ? 'Nothing waiting for you' : 'No drafts here'} description="Confirm observations in Class Pulse and choose what to draft. Suggestions arrive here for review." />
+        )}
+        {rows.some(reviewable) && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {bulk === null
+              ? <Button size="sm" variant="ghost" onClick={() => setBulk([])}><ListChecks />Select several</Button>
+              : <>
+                  <span className="font-medium">{bulk.length} selected</span>
+                  <button type="button" className="text-primary hover:underline" onClick={() => setBulk(rows.filter(reviewable).map((d) => d.id))}>All ready</button>
+                  <button type="button" className="text-muted hover:underline" onClick={() => setBulk(null)}>Done</button>
+                </>}
+          </div>
+        )}
+        {bulk !== null && !!bulk.length && (
+          <div className="sticky top-20 z-10 flex flex-wrap gap-2 rounded-xl border border-border bg-elevated p-2 shadow-md">
+            <Button size="sm" onClick={() => setConfirmBulk('approve')}><Check />Approve {bulk.length}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmBulk('defer')}><CalendarClock />Tomorrow</Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmBulk('discard')}><Trash2 />Discard</Button>
+          </div>
+        )}
+        <Stagger className="grid gap-3 xl:grid-cols-2">
           {rows.map((d) => (
-            <div key={d.id} className="flex items-start gap-2">
-              {bulk !== null && <input type="checkbox" aria-label={`Select ${ARTIFACT_META[d.kind].label}${d.title ? ` · ${d.title}` : ''}`} className="mt-4 size-4 accent-[var(--primary)]" disabled={!reviewable(d)} checked={bulk.includes(d.id)} onChange={(e) => setBulk((ids) => (e.target.checked ? [...(ids ?? []), d.id] : (ids ?? []).filter((x) => x !== d.id)))} />}
-              <div className="min-w-0 flex-1"><DraftCard draft={d} active={id === d.id} onClick={() => select(d.id)} /></div>
-            </div>
+            <StaggerItem key={d.id} className="flex items-start gap-2">
+              {bulk !== null && <input type="checkbox" aria-label={`Select ${ARTIFACT_META[d.kind].label}${d.title ? ` · ${d.title}` : ''}`} className="mt-5 size-5 accent-[var(--primary)]" disabled={!reviewable(d)} checked={bulk.includes(d.id)} onChange={(e) => setBulk((ids) => (e.target.checked ? [...(ids ?? []), d.id] : (ids ?? []).filter((x) => x !== d.id)))} />}
+              <div className="min-w-0 flex-1"><DraftCard draft={d} active={id === d.id} onReview={(i) => select(d.id, i)} onDefer={() => void decide(d, 'defer')} onDiscard={() => setDiscarding(d)} /></div>
+            </StaggerItem>
           ))}
-        </div>
-        <div className={cn(!id && 'max-lg:hidden')}>
-          {id ? (
-            <>
-              <Button variant="ghost" size="sm" className="mb-2 lg:hidden" onClick={() => select('')}><ArrowLeft /> All drafts</Button>
-              <ArtifactReview key={id} id={id} />
-            </>
-          ) : (
-            <Card><CardBody className="flex min-h-64 flex-col items-center justify-center gap-2 pt-5 text-center text-sm text-muted"><Sparkles className="size-6 text-proposal" />Select a draft to see what happened, what Pulsera drafted and the evidence behind it.</CardBody></Card>
-          )}
-        </div>
+        </Stagger>
       </div>
+
+      <Dialog open={!!id} onOpenChange={(o) => !o && select('')}>
+        {id && (
+          <SheetContent side="right" className="max-w-2xl" title="Review draft" description="What happened, what Pulsera drafted, and the evidence behind it.">
+            <ArtifactReview key={id} id={id} intent={intent} />
+          </SheetContent>
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -156,33 +177,61 @@ const reviewable = (d: Draft) => d.generationState === 'ready' && d.reviewState 
 
 function GroupChip({ active, onClick, label, count, title }: { active: boolean; onClick(): void; label: string; count: number; title?: string }) {
   return (
-    <button type="button" role="tab" aria-selected={active} title={title} onClick={onClick} className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors', active ? 'border-primary bg-primary-soft text-primary-soft-fg' : 'border-border bg-elevated text-muted hover:text-fg')}>
-      {label}<span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', active ? 'bg-primary/15' : 'bg-sunken')}>{count}</span>
+    <button type="button" role="tab" aria-selected={active} title={title} onClick={onClick} className={cn('inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors', active ? 'border-primary bg-primary-soft text-primary-soft-fg' : 'border-border bg-elevated text-muted hover:text-fg')}>
+      {label}<span className={cn('rounded-full px-1.5 text-xs tabular-nums', active ? 'bg-primary/15' : 'bg-sunken')}>{count}</span>
     </button>
   );
 }
 
-function DraftCard({ draft: d, active, onClick }: { draft: Draft; active: boolean; onClick(): void }) {
+/** One draft, in the order a teacher reads it: what happened → what Pulsera drafted → evidence → audience → status. */
+function DraftCard({ draft: d, active, onReview, onDefer, onDiscard }: { draft: Draft; active: boolean; onReview(intent?: 'edit' | 'approve'): void; onDefer(): void; onDiscard(): void }) {
   const meta = ARTIFACT_META[d.kind];
   const students = d.students ?? [];
+  const stage = draftStage(d);
+  const kinds = (d.evidenceKinds ?? []).map((k) => OBSERVATION_META[k as keyof typeof OBSERVATION_META]?.label.toLowerCase() ?? humanize(k));
+  const sourceCount = d.sources.length;
+  const canAct = reviewable(d);
   return (
-    <button type="button" onClick={onClick} aria-pressed={active} className={cn('w-full rounded-xl border bg-elevated p-3 text-left shadow-xs transition-all', active ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:-translate-y-0.5 hover:border-border-strong')}>
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold">{meta.label}</span>
-        <span className="ml-auto text-[11px] text-subtle">{relativeTime(d.createdAt)}</span>
+    <article className={cn('rounded-xl border bg-elevated p-5 shadow-xs transition-all', active ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-border-strong hover:shadow-sm')} data-testid={`draft-${d.id}`}>
+      <div className="flex items-start gap-3">
+        <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-ai-soft text-ai-fg"><Sparkles className="size-4" /></span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h2 className="text-base font-semibold">{meta.label}</h2>
+            <span className="text-xs text-subtle">{relativeTime(d.createdAt)}</span>
+          </div>
+          <dl className="mt-3 grid gap-y-1.5 text-sm sm:grid-cols-[8.5rem_1fr]">
+            <dt className="text-muted">What happened</dt>
+            <dd className="min-w-0">{kinds.length ? `${humanize(kinds.join(', '))}` : 'Confirmed observations'}{students.length ? <> · {students.slice(0, 3).map((s) => s.displayName).join(', ')}{students.length > 3 && ` +${students.length - 3}`}</> : null}{d.session?.topic ? <span className="text-muted"> · {d.session.topic}</span> : null}</dd>
+            <dt className="text-muted">Pulsera drafted</dt>
+            <dd className="min-w-0 truncate text-ai-fg">{d.title ?? meta.produces}</dd>
+            <dt className="text-muted">Evidence</dt>
+            <dd>{sourceCount ? `${sourceCount} confirmed observation${sourceCount === 1 ? '' : 's'}` : 'Source changed'}</dd>
+            <dt className="text-muted">Audience</dt>
+            <dd>{d.approvedAudience ? humanize(d.approvedAudience) : ARTIFACT_AUDIENCE[d.kind]}</dd>
+          </dl>
+        </div>
       </div>
-      {d.title && <p className="mt-0.5 line-clamp-1 text-sm text-muted">{d.title}</p>}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-        {students.slice(0, 3).map((s) => <span key={s.id} className="inline-flex items-center gap-1"><Avatar name={s.displayName} size="sm" className="size-5 text-[9px]" />{s.displayName}</span>)}
-        {students.length > 3 && <span>+{students.length - 3}</span>}
-        {!!d.evidenceKinds?.length && <span>· from {d.evidenceKinds.map((k) => OBSERVATION_META[k as keyof typeof OBSERVATION_META]?.label.toLowerCase() ?? humanize(k)).join(', ')}</span>}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <TeacherConfirm compact stage={draftStage(d)} />
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+        <TeacherConfirm stage={stage} compact={stage.step === 0} />
         {deferred(d) && <Badge tone="outline"><CalendarClock /> until {fmtDate(d.deferredUntil)}</Badge>}
-        {d.approvedAudience && d.approvedAudience !== 'teacher' && <Badge tone="info">For {d.approvedAudience}</Badge>}
+        <div className="ml-auto flex items-center gap-1">
+          <Button size="sm" variant={stage.kind === 'logged' ? 'secondary' : 'primary'} onClick={() => onReview()} aria-label={`${stage.kind === 'logged' ? 'View' : 'Review'} ${meta.label}${d.title ? ` · ${d.title}` : ''}`}>{stage.kind === 'logged' ? 'View' : 'Review'}</Button>
+          {canAct && (
+            <Dropdown>
+              <DropdownTrigger asChild><Button size="icon" variant="ghost" aria-label={`More actions for ${meta.label}`}><MoreHorizontal /></Button></DropdownTrigger>
+              <DropdownContent>
+                <DropdownItem icon={<Pencil />} onSelect={() => onReview('edit')}>Edit</DropdownItem>
+                <DropdownItem icon={<Check />} onSelect={() => onReview('approve')}>Approve…</DropdownItem>
+                <DropdownItem icon={<CalendarClock />} onSelect={onDefer}>Defer to tomorrow</DropdownItem>
+                <DropdownSeparator />
+                <DropdownItem icon={<Trash2 />} onSelect={onDiscard}>Discard</DropdownItem>
+              </DropdownContent>
+            </Dropdown>
+          )}
+        </div>
       </div>
-    </button>
+    </article>
   );
 }
 
@@ -190,7 +239,7 @@ function SectionTitle({ icon, title, tone, children }: { icon: React.ReactNode; 
   return <div className="mb-2 flex flex-wrap items-center gap-2"><span className={cn('inline-flex size-6 items-center justify-center rounded-md [&_svg]:size-3.5', tone)}>{icon}</span><h3 className="text-sm font-semibold">{title}</h3>{children}</div>;
 }
 
-function ArtifactReview({ id }: { id: string }) {
+function ArtifactReview({ id, intent }: { id: string; intent: '' | 'edit' | 'approve' }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['classroom-draft', id], queryFn: () => api.get<Detail>(`/api/pulse/drafts/${id}`), refetchInterval: (query) => ['queued', 'running'].includes(query.state.data?.draft.generationState ?? '') ? 3000 : false });
   const [edited, setEdited] = useState<ArtifactContent | null>(null);
@@ -199,13 +248,25 @@ function ArtifactReview({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [editRevision, setEditRevision] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [intentApplied, setIntentApplied] = useState(false);
   const refresh = async () => { await qc.invalidateQueries({ queryKey: ['classroom-draft', id] }); await qc.invalidateQueries({ queryKey: ['classroom-drafts'] }); };
   async function action(path: string, body: unknown, done?: string) {
     setBusy(true); setError('');
-    try { await api.post(`/api/pulse/drafts/${id}/${path}`, body); setEdited(null); setEditRevision(null); setStatus(done ?? 'Saved'); if (done) toast.success(done); setTimeout(() => setStatus(''), 4000); await refresh(); return true; }
+    try { await api.post(`/api/pulse/drafts/${id}/${path}`, body); setEdited(null); setEditRevision(null); setConfirming(false); setStatus(done ?? 'Saved'); if (done) toast.success(done); setTimeout(() => setStatus(''), 4000); await refresh(); return true; }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not save'); return false; }
     finally { setBusy(false); }
   }
+  // Edit or Approve chosen from a card opens the panel straight into that step.
+  const data = q.data;
+  useEffect(() => {
+    if (intentApplied || !data) return;
+    const current = data.revisions.find((r) => r.revision === data.draft.revision);
+    const open = data.draft.generationState === 'ready' && data.draft.reviewState === 'suggested';
+    if (open && intent === 'edit' && current) { setEdited(structuredClone(current.content)); setEditRevision(data.draft.revision); }
+    if (open && intent === 'approve') setConfirming(true);
+    setIntentApplied(true);
+  }, [data, intent, intentApplied]);
   if (q.isLoading) return <PageSkeleton />;
   if (q.error) return <Callout tone="warning" title="This draft is not available">{q.error.message} Return to Class Pulse to prepare from current evidence.</Callout>;
   if (!q.data) return null;
@@ -230,9 +291,10 @@ function ArtifactReview({ id }: { id: string }) {
     } catch (e) { setError(e instanceof Error ? e.message : 'Export failed'); } finally { setBusy(false); }
   }
 
+  const sourceKinds = [...new Set(evidence.map((e) => OBSERVATION_META[e.observation.kind].label.toLowerCase()))];
   return (
-    <Card>
-      <CardBody className="space-y-5 pt-5">
+    <div>
+      <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-subtle">{INBOX_GROUPS.find((g) => g.id === meta.group)?.label}</div>
@@ -244,12 +306,13 @@ function ArtifactReview({ id }: { id: string }) {
         {q.data.template && (q.data.template.validation
           ? <p className="flex items-center gap-1.5 text-xs text-success-fg"><Check className="size-3.5" />Template validated by {q.data.template.validation.name} ({humanize(q.data.template.validation.role)}) on {fmtDate(q.data.template.validation.validatedAt)}. Supports team discussion; formal decisions follow the school’s own process.</p>
           : <Callout tone="info">This template has not yet been validated by a qualified educator at your school, so use it for discussion only. Formal school decisions follow the school’s own process.</Callout>)}
-        {draft.error && <Callout tone="danger">{draft.error}</Callout>}
+        {draft.reviewState === 'stale' && <Callout tone="warning" title="Needs review">An observation this draft relied on was corrected or undone, so it can no longer be approved as it stands. Discard it, then prepare a new one from the current observations in Class Pulse.</Callout>}
+        {draft.error && draft.reviewState !== 'stale' && <Callout tone="warning" title="Something went wrong drafting this">{draft.error} Your observations are saved; you can try again.</Callout>}
         {['failed', 'disabled'].includes(draft.generationState) && <Button disabled={busy} onClick={() => void action('retry', {}, 'Retrying the draft')}>Retry generation</Button>}
         {['queued', 'running'].includes(draft.generationState) && <p role="status" className="flex items-center gap-2 text-sm text-muted"><span className="size-2 animate-pulse rounded-full bg-info" />Pulsera is preparing this draft. Classroom capture remains available.</p>}
 
         <section>
-          <SectionTitle icon={<UserRound />} title="What happened" tone="bg-evidence-soft text-evidence"><span className="text-xs text-muted">Teacher observations · confirmed</span></SectionTitle>
+          <SectionTitle icon={<UserRound />} title="What happened" tone="bg-evidence-soft text-evidence"><span className="text-xs text-muted">Your observations · confirmed</span></SectionTitle>
           <ol className="space-y-2">
             {evidence.map((e) => {
               const ctx = sourceContext.find((s) => s.number === e.number);
@@ -272,10 +335,10 @@ function ArtifactReview({ id }: { id: string }) {
 
         {content && (
           <section>
-            <SectionTitle icon={draft.reviewState === 'approved' && !edited ? <Check /> : <Bot />} title={draft.reviewState === 'approved' && !edited ? 'Approved record' : 'What Pulsera drafted'} tone={draft.reviewState === 'approved' && !edited ? 'bg-success-soft text-success-fg' : 'bg-proposal-soft text-proposal'}>
+            <SectionTitle icon={draft.reviewState === 'approved' && !edited ? <Check /> : <Bot />} title={draft.reviewState === 'approved' && !edited ? 'Approved record' : 'What Pulsera drafted'} tone={draft.reviewState === 'approved' && !edited ? 'bg-success-soft text-success-fg' : 'bg-ai-soft text-ai-fg'}>
               <span className="text-xs text-muted">{edited ? 'Editing — saves as a new version' : `${current?.createdBy === 'ai' ? 'Drafted by AI' : 'Edited by an educator'}${draft.reviewState === 'approved' ? ', approved by you' : ' · not yet approved'} · version ${draft.revision}`}</span>
             </SectionTitle>
-            <div className={cn('space-y-3 rounded-lg border p-3', draft.reviewState === 'approved' && !edited ? 'border-success/30 bg-success-soft/30' : 'border-dashed border-proposal/40 bg-proposal-soft/20')}>
+            <div className={cn('space-y-3 rounded-xl border p-4', draft.reviewState === 'approved' && !edited ? 'border-success/30 bg-success-soft/30' : 'border-dashed border-ai/40 bg-ai-soft/40')}>
               {Object.entries(content).filter(([key]) => !['kind', 'sourceNumbers'].includes(key)).map(([key, value]) => (
                 <label key={key} className="block text-sm font-medium">{humanize(key)}
                   {edited
@@ -288,6 +351,15 @@ function ArtifactReview({ id }: { id: string }) {
             </div>
           </section>
         )}
+
+        <details className="rounded-xl border border-border p-4 text-sm">
+          <summary className="flex cursor-pointer items-center gap-2 font-semibold"><HelpCircle className="size-4 text-ai-fg" />Why did Pulsera suggest this?</summary>
+          <div className="mt-3 space-y-2 text-muted">
+            <p>You asked for {ARTIFACT_META[draft.kind].produces.toLowerCase()} from {evidence.length} confirmed observation{evidence.length === 1 ? '' : 's'}{sourceKinds.length ? ` (${sourceKinds.join(', ')})` : ''}{draft.session?.topic ? ` in “${draft.session.topic}”` : ''}. Pulsera drafted only from those, and only the numbered sources above.</p>
+            <p>The model saw de-identified observations, never a name. The wording above is a suggestion: {ARTIFACT_AUDIENCE[draft.kind].toLowerCase()} {draft.kind === 'parent_message' || draft.kind === 'positive_note' ? 'sees it only if you approve it for them and then share it.' : 'is who it is written for.'}</p>
+            <p className="text-xs">Prompt {draft.promptVersionId ?? 'not generated yet'} · version {draft.revision} · nothing is a record until you approve it.</p>
+          </div>
+        </details>
 
         {canReview && content && draft.reviewState !== 'approved' && (
           <section className="space-y-3 rounded-lg border border-border p-3">
@@ -304,18 +376,28 @@ function ArtifactReview({ id }: { id: string }) {
                     <Segmented size="sm" value={audience} onChange={setAudience} options={[{ value: 'teacher', label: 'Teacher only' }, { value: 'student', label: 'Student' }, { value: 'family', label: 'Family' }]} />
                   </div>
                 )}
-                <div className="flex flex-wrap gap-2">
-                  <Button loading={busy} onClick={() => void action('approve', { expectedRevision: draft.revision, audience }, `Version ${draft.revision} approved and logged`)}><Check /> Approve version {draft.revision}</Button>
-                  <Button variant="secondary" disabled={busy} onClick={() => { setEdited(structuredClone(content)); setEditRevision(draft.revision); }}><Pencil /> Edit wording</Button>
-                  <Button variant="ghost" disabled={busy} onClick={() => void action('decide', { expectedRevision: draft.revision, decision: 'defer', until: new Date(Date.now() + 86400000).toISOString() }, 'Deferred until tomorrow')}><CalendarClock /> Review tomorrow</Button>
-                  <Button variant="ghost" disabled={busy} className="text-danger-fg" onClick={() => void action('decide', { expectedRevision: draft.revision, decision: 'discard' }, 'Draft discarded')}><Trash2 /> Discard draft</Button>
-                </div>
+                {confirming ? (
+                  <div className="space-y-3 rounded-xl border border-success/30 bg-success-soft/40 p-4" role="group" aria-label="Confirm approval">
+                    <p className="text-sm font-medium">Approve version {draft.revision} for {audience === 'teacher' ? 'your own records' : `the ${audience}`}? It is logged with your name and the time. Nothing is sent.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button loading={busy} onClick={() => void action('approve', { expectedRevision: draft.revision, audience }, `Version ${draft.revision} approved and logged`)}><Check /> Confirm approval</Button>
+                      <Button variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>Back</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <Button disabled={busy} onClick={() => setConfirming(true)}><Check /> Approve version {draft.revision}</Button>
+                    <Button variant="secondary" disabled={busy} onClick={() => { setEdited(structuredClone(content)); setEditRevision(draft.revision); }}><Pencil /> Edit wording</Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => void action('decide', { expectedRevision: draft.revision, decision: 'defer', until: new Date(Date.now() + 86400000).toISOString() }, 'Deferred until tomorrow')}><CalendarClock /> Review tomorrow</Button>
+                    <Button variant="ghost" disabled={busy} className="text-danger-fg" onClick={() => void action('decide', { expectedRevision: draft.revision, decision: 'discard' }, 'Draft discarded')}><Trash2 /> Discard draft</Button>
+                  </div>
+                )}
                 <p className="text-xs text-muted">Approval logs this version with your name and the time. {communication ? 'It does not send anything; sharing to a portal is a separate step.' : 'It stays private to your section.'}</p>
               </>
             )}
           </section>
         )}
-        {!canReview && draft.reviewState === 'suggested' && draft.generationState === 'ready' && <Button variant="ghost" disabled={busy} onClick={() => void action('decide', { expectedRevision: draft.revision, decision: 'discard' }, 'Draft discarded')}>Discard draft</Button>}
+        {(draft.reviewState === 'stale' || (!canReview && draft.reviewState === 'suggested' && draft.generationState === 'ready')) && <Button variant="ghost" disabled={busy} onClick={() => void action('decide', { expectedRevision: draft.revision, decision: 'discard' }, 'Draft discarded')}>Discard draft</Button>}
 
         {draft.reviewState === 'approved' && publication && (
           <section className="space-y-3 rounded-lg border border-success/30 p-3">
@@ -332,7 +414,7 @@ function ArtifactReview({ id }: { id: string }) {
 
         {canReview && (
           <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer text-sm font-semibold"><Sparkles className="mr-1 inline size-4 text-proposal" />Pulsera Guide™ · work with this evidence</summary>
+            <summary className="cursor-pointer text-sm font-semibold"><Sparkles className="mr-1 inline size-4 text-ai-fg" />Ask Pulsera Guide about this evidence</summary>
             <p className="my-2 text-xs text-muted">Guide prepares a suggestion from the same confirmed sources. Each result is its own draft and needs its own approval.</p>
             <div className="flex flex-wrap gap-2">{(['guide_explain', 'guide_adjust', 'guide_next_step'] as const).map((kind) => (
               <Button key={kind} size="sm" variant="secondary" disabled={busy} onClick={async () => {
@@ -354,7 +436,7 @@ function ArtifactReview({ id }: { id: string }) {
         <p className="flex items-center gap-1.5 text-[11px] text-subtle"><FileText className="size-3" />Prompt {draft.promptVersionId ?? 'not generated'}{draft.reviewState !== 'approved' && ` · unapproved content expires ${fmtDateTime(draft.expiresAt)}`}</p>
         {error && <p role="alert" className="text-sm text-danger-fg">{error}</p>}
         <p role="status" className="text-sm">{status}</p>
-      </CardBody>
-    </Card>
+      </div>
+    </div>
   );
 }

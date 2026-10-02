@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { ROLES, newId } from '@class-pulse/domain';
+import { ROLES, SECTION_PERIODS, newId } from '@class-pulse/domain';
 import type { AppContext } from '../context';
 import { badRequest, conflict, forbidden, notFound } from '../context';
 import { checkoutSessions, classSections, invitations, organizations, roleAssignments, schools, sectionEnrollments, students, subscriptions, users } from '../db/schema';
@@ -90,7 +90,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext) {
         setupAs: z.enum(['teacher', 'administrator']).default('administrator'),
         workspaceName: z.string().min(2).max(120),
         schoolName: z.string().min(2).max(120),
-        firstSection: z.object({ name: z.string().min(1).max(120), gradeLevel: z.string().min(1).max(20), periodTag: z.string().nullable() }).nullable(),
+        firstSection: z.object({ name: z.string().min(1).max(120), gradeLevel: z.string().min(1).max(20), periodTag: z.enum(SECTION_PERIODS).nullable() }).nullable(),
       })
       .parse(req.body);
     if (body.setupAs === 'teacher' && !body.firstSection) throw badRequest('Name the first class section you teach');

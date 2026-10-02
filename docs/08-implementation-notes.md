@@ -3,6 +3,30 @@
 What was built, where the build deviated from docs 00–07 and why, and what the evals found.
 Written alongside the first full implementation (September 2026).
 
+## Installable app and release updates (October 2026)
+
+- Pulsera has a scoped standalone manifest, desktop/phone icons, Apple web-app metadata,
+  and an Install app control on the landing page and every role's sidebar/mobile menu.
+- Service workers are explicitly deployment-only: the Docker build sets `PWA_DEPLOYMENT=true`.
+  Local builds do not emit a worker; runtime also requires HTTPS and rejects localhost.
+  Earlier local Pulsera registrations and offline caches are removed on startup.
+- Each build stamps the client, `version.json`, and deployed worker with one release ID.
+  Startup checks the server before mounting editable screens, with a three-second limit.
+  A changed release reloads through a versioned URL; session and URL guards prevent loops.
+  Failed release checks do not prevent startup. The worker updates independently and caches
+  only the public offline page, never classroom data, auth, HTML app shells, or bundles.
+- Check for updates is next to Install app. Five-minute polling runs while visible and online;
+  foreground/reconnection checks are throttled to once a minute. Updates discovered during
+  use show a reload button and save-changes reminder, including a visible phone notice.
+  Background checks never reload the user's active session automatically.
+- Production-browser verification exposed a Clerk/React circular chunk that blanked startup.
+  Keeping their shared runtime in the vendor chunk fixes that failure.
+
+Verification: web typecheck, targeted lint, local and deployment-enabled builds, and 16 PWA
+checks pass. These cover install guidance, local worker exclusion, startup/polling behavior,
+manual reloads, loop guards, and offline cache isolation. Deployment build inspection confirms
+that client, release marker, and worker share an ID; local output contains no worker script.
+
 ## Status
 
 Phases 0–7 of the [roadmap](06-roadmap.md) are implemented and demonstrable on synthetic data.
@@ -344,3 +368,76 @@ WCAG 2 A/AA scans. Full live e2e on a fresh seed: 77 passed; the two failures (a
 the spec re-passed 6/6 against the same database state. `pulsera-live.spec.ts` passes on its own
 on a fresh seed. Live model checks: Tomorrow preparation, positive note and ABC drafts, v4 evals,
 and voice transcription of a synthetic recording.
+
+## Visual, UX and class-editing pass — 2026-10-02
+
+Implements `Pulsera_Visual_Aesthetic_and_User_Experience_Implementation_Spec.docx`; section by
+section in `docs/12-pulsera-visual-ux-alignment.md`. Decisions worth keeping:
+
+- **Colour has a job.** Primary is blue (it was teal), success is teal, and AI gets its own violet
+  `ai` token (`proposal` now aliases it). Amber means "needs the teacher"; red is destructive only.
+  Behavior observations are neutral and lost the warning-triangle icon; praise is teal, not amber.
+- **One current class across the teacher surface.** `lib/classes.ts` keeps it in a small
+  localStorage-backed store so the top-bar selector, Class Pulse and Tomorrow agree; a `?class=`
+  link wins. Without a timetable the default is period order. A pending, unconfirmed save blocks
+  switching class from the selector, as the link guard already blocked navigation.
+- **Sections are edited in place** (migration 0022, `PATCH /api/classroom/sections/:id`). The id
+  never changes and sessions keep the context tags they were opened with, so a renamed or
+  re-perioded class keeps its whole history. Period is validated against the schedule vocabulary on
+  every create path (teacher, onboarding, admin) because it becomes a pattern-engine context tag.
+  `expectedUpdatedAt` gives a 409 instead of a silent overwrite from a second tab.
+- **Roster removal removes the enrollment only.** Class views join through enrollment, so a removed
+  student's events leave the live views and come back if they are re-added; nothing is deleted.
+- **Archive is a soft state.** Reads keep working; new sessions and captures get a 409; the
+  Tomorrow scheduler skips archived classes.
+- **Session end is a status.** `ended_at` drives "Session complete"; the API still accepts
+  confirmation, correction, drafting and late capture after the bell.
+- **Approval became two steps** (Approve version N → Confirm approval, naming the audience). The
+  spec asks that approval feel deliberate; the server contract is unchanged.
+- **API errors speak plainly.** Zod failures return "Check <field>: <message>." and 500s say what
+  to do next, instead of "Validation failed" / "Internal error".
+- **The isolated harness renders the real shell.** `e2e/pulse-vite.config.ts` aliases
+  `@clerk/react` to `e2e/clerk-stub.tsx`; production code has no seam. Its helpers wait for finite
+  animations before axe and screenshots, because a control that has just become enabled is still
+  fading in and axe measures the half-faded colour.
+- **Favicon set.** `favicon.svg` already existed; PNG fallbacks, an apple-touch-icon, 192/512 icons
+  and `site.webmanifest` are rendered from it by `node scripts/icons.mjs`, and `theme-color` moved
+  to the new blue.
+
+Verification for this pass: 195 Vitest tests (16 files; six new for editable sections), six
+workspace typechecks, lint and the production web build pass. Isolated walkthroughs: 25 passed at
+desktop, tablet and phone (dark mode on desktop), with axe WCAG 2 A/AA and no horizontal page
+scroll. Full live e2e on a fresh seed: 87 of 87 passed, including the rewritten `my-class.spec.ts`
+(create with a student → edit in place → add/remove students → family access → isolation →
+archive) and the classroom-plan onboarding that now lands on My Classes.
+
+## Migrations squashed — 2026-10-02
+
+With every database due for a reseed (no data to keep), the 23 migrations (0000–0022) became one
+baseline, `apps/api/drizzle/0000_init.sql`: drizzle-kit's output for `src/db/schema.ts`, with the
+hand-written triggers from the old 0001 appended (audit and egress logs append-only, prompt
+versions immutable except status). Applied to an empty Postgres, the old chain and the baseline
+produce byte-identical catalogs — tables, columns, defaults, constraints, indexes, triggers and
+functions — checked by introspecting both in PGlite. `drizzle-kit generate` reports no drift.
+
+Retired with the old chain: two data backfills that only mattered to databases created before
+them (learner identity links for legacy cases, 0004 — learner links are also created on demand at
+capture; Pulsera on for synthetic workspaces, 0016 — now the column default), and the two tests
+that executed those files.
+
+Databases migrated by the old chain cannot be upgraded in place. `db/client.ts` compares the
+database's first recorded migration hash with the baseline's and refuses to boot with an
+explanation instead of failing halfway through `CREATE SCHEMA`. `seed --reset` and `db:empty` now
+drop the schemas through `dropAppSchemas` *before* opening (and so migrating) the database, so
+both work on an old-history database. `.gitattributes` pins `apps/api/drizzle/**` to LF: drizzle
+hashes each file's bytes, and an autocrlf checkout would otherwise change the hash.
+
+**Fly order of operations.** A new image refuses to boot on the old-history `fly` branch, and
+`npm run db:reseed -- --target fly` runs inside the machine, so empty the branch first:
+1. Delete the Clerk users and pending invitations (shared dev instance).
+2. Drop the schemas on the Neon `fly` branch (SQL editor):
+   `DROP SCHEMA IF EXISTS working, identified, drizzle CASCADE;` — the running old app errors
+   until step 3.
+3. `npm run deploy` — boots on the empty branch and applies the baseline.
+4. `npm run db:reseed -- --target fly` — seeds the demo workspace and recreates the Clerk accounts.
+5. `npm run db:reseed -- --target local`; the e2e branch reseeds itself on `npm run e2e`.

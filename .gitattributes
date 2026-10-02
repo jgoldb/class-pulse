@@ -1,0 +1,4 @@
+# Drizzle records a hash of each migration file's exact bytes, and db/client.ts compares it to
+# detect a database from a retired migration history, so migrations must be byte-identical on every
+# checkout (Windows included).
+apps/api/drizzle/** text eol=lf

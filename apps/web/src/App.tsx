@@ -11,7 +11,11 @@ import { ClassPulse } from './pages/teacher/ClassPulse';
 import { ClassroomDrafts } from './pages/teacher/ClassroomDrafts';
 import { Tomorrow } from './pages/teacher/Tomorrow';
 import { CasesList } from './pages/teacher/CasesList';
-import { MyClass } from './pages/teacher/MyClass';
+import { Classes } from './pages/teacher/classes/Classes';
+import { ManageStudents } from './pages/teacher/classes/ManageStudents';
+import { Families } from './pages/teacher/Families';
+import { Reports } from './pages/teacher/Reports';
+import { TeacherSettings } from './pages/teacher/Settings';
 import { IntakePage } from './pages/teacher/Intake';
 import { CaseDetail } from './pages/teacher/CaseDetail';
 import { DraftReview } from './pages/teacher/DraftReview';
@@ -93,7 +97,13 @@ export function App() {
         <Route path="drafts" element={<ClassroomDrafts />} />
         <Route path="tomorrow" element={<Tomorrow />} />
         <Route path="cases" element={<CasesList />} />
-        <Route path="class" element={<MyClass />} />
+        <Route path="classes" element={<Classes />} />
+        <Route path="classes/:sectionId/students" element={<ManageStudents />} />
+        {/* The old roster page; links and bookmarks land on My Classes. */}
+        <Route path="class" element={<Navigate to="/teacher/classes" replace />} />
+        <Route path="families" element={<Families />} />
+        <Route path="reports" element={<Reports />} />
+        <Route path="settings" element={<TeacherSettings />} />
         <Route path="students" element={<PulseProfiles role="teacher" />} />
         <Route path="intake" element={<IntakePage />} />
         <Route path="cases/:caseKey" element={<CaseDetail />} />

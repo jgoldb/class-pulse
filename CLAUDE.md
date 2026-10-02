@@ -63,6 +63,11 @@ seed; new-device verification code is `424242`). Text-only checks are not verifi
 
 ## Gotchas
 
+- Migrations were squashed into one baseline (`apps/api/drizzle/0000_init.sql`) on 2026-10-02. A
+  database migrated before then is refused at boot with a message saying so; reset it with
+  `db:reseed` or `db:empty`, which drop the schemas *before* migrating. New migrations are added
+  on top as usual with `npm run db:generate`; hand-written SQL (the append-only triggers) lives
+  at the end of the baseline. `.gitattributes` keeps migration files LF because drizzle hashes them.
 - Windows + Git Bash: avoid multi-file heredocs in one shell call and sed on files with quotes;
   use the Write/Edit tools.
 - `tsx watch` API processes can outlive the preview server; kill the port before reseeding.

@@ -122,9 +122,13 @@ test('a teacher buying the Classroom plan sets up their own class, not a school'
   await page.getByPlaceholder('Grade 6 — Period 3 Science').fill('Grade 8 — Period 2 English');
   await page.getByRole('button', { name: 'Create my class' }).click();
 
-  await expect(page).toHaveURL(/\/teacher\/class/, { timeout: 30_000 });
-  await expect(page.getByText('Grade 8 — Period 2 English')).toBeVisible();
-  await expect(page.getByText('No students on this roster yet')).toBeVisible();
+  await expect(page).toHaveURL(/\/teacher\/classes/, { timeout: 30_000 });
+  await expect(page.getByRole('link', { name: 'Grade 8 — Period 2 English' })).toBeVisible();
+  await expect(page.getByTestId('welcome')).toContainText('Your class is ready');
+  // The next step is the roster, one click away.
+  await page.getByTestId('welcome').getByRole('link', { name: 'Add your students' }).click();
+  await expect(page.getByRole('heading', { name: 'Manage Students' })).toBeVisible();
+  await expect(page.getByText('No students in this class yet')).toBeVisible();
   // A teacher-owned workspace has no administration surface at all.
   await page.goto('/admin');
   await expect(page).toHaveURL(/\/teacher/);

@@ -20,8 +20,7 @@
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { sql } from 'drizzle-orm';
-import { openDb } from './client';
+import { dropAppSchemas, openDb } from './client';
 
 for (const candidate of [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../../.env')]) {
   if (existsSync(candidate)) {
@@ -42,13 +41,9 @@ async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required');
 
-  // Open through openDb rather than a bare pool: it owns the Neon sslmode rewrite, and running
-  // the migrations first means this also works against a database that was never migrated.
-  const opened = await openDb({ url });
-  await opened.db.execute(sql`DROP SCHEMA IF EXISTS working CASCADE`);
-  await opened.db.execute(sql`DROP SCHEMA IF EXISTS identified CASCADE`);
-  await opened.db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
-  await opened.close();
+  // Drop without migrating first, so this also empties a database from an older migration
+  // history (db/client.ts) — the one case where running the migrations would fail.
+  await dropAppSchemas(url);
   console.log('Schemas dropped. Re-running migrations…');
 
   const fresh = await openDb({ url });

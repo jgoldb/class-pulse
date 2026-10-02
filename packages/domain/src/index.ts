@@ -18,3 +18,4 @@ export * from './follow-up';
 export * from './contribution';
 export * from './plan-revision';
 export * from './class-calendar';
+export * from './section';

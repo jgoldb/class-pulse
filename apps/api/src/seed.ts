@@ -11,11 +11,12 @@
  */
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { newId } from '@class-pulse/domain';
 import { EVAL_CASES } from '@class-pulse/ai/evals';
 import { aiConfigFromEnv } from '@class-pulse/ai';
 import { createApp } from './bootstrap';
+import { dropAppSchemas } from './db/client';
 import { caseLinks, cases, classSections, goals, organizations, planDrafts, reviewCycles, roleAssignments, schools, sectionEnrollments, students, subscriptions, users } from './db/schema';
 import { submitIntake } from './services/cases';
 import { approveDraft } from './services/plans';
@@ -56,19 +57,15 @@ async function main() {
   if (aiConfigFromEnv().provider === 'off') {
     throw new Error('AI_PROVIDER=off: the model is turned off, so the demo seed cannot generate its plan draft. Unset it to seed.');
   }
-  const app = await createApp({ pollMs: 60_000 });
-  const { ctx } = app;
-  const db = ctx.db;
-
   if (reset) {
-    await db.execute(sql`DROP SCHEMA IF EXISTS working CASCADE`);
-    await db.execute(sql`DROP SCHEMA IF EXISTS identified CASCADE`);
-    await db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
-    await app.close();
+    // Drop before the app opens the database: opening runs the migrations, and a database from an
+    // older migration history (see db/client.ts) has to be emptied before it can be migrated.
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to reset the database');
+    await dropAppSchemas(process.env.DATABASE_URL);
     console.log('Database reset. Re-running migrations…');
     return main2();
   }
-  return main2(app);
+  return main2(await createApp({ pollMs: 60_000 }));
 }
 
 async function ensureClerkUser(ctx: Awaited<ReturnType<typeof createApp>>['ctx'], a: (typeof DEMO_ACCOUNTS)[number]): Promise<string> {
@@ -103,8 +100,8 @@ async function main2(existingApp?: Awaited<ReturnType<typeof createApp>>) {
   const sec6 = 'sec-6-p3';
   const sec7 = 'sec-7-p2';
   await db.insert(classSections).values([
-    { id: sec6, schoolId, name: 'Grade 6 — Period 3 Science', gradeLevel: '6', periodTag: 'period_3' },
-    { id: sec7, schoolId, name: 'Grade 7 — Period 2 ELA', gradeLevel: '7', periodTag: 'period_2' },
+    { id: sec6, schoolId, name: 'Grade 6 — Period 3 Science', courseName: 'Science 6', gradeLevel: '6', periodTag: 'period_3', room: '114', accent: 'teal' },
+    { id: sec7, schoolId, name: 'Grade 7 — Period 2 ELA', courseName: 'English Language Arts 7', gradeLevel: '7', periodTag: 'period_2', room: '204', accent: 'violet' },
   ]);
 
   console.log('Creating Clerk demo accounts…');

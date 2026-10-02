@@ -87,7 +87,7 @@ the chosen service and account settings when executing the drill.
 4. Start one test worker. Verify queued work completes once, retries do not duplicate publication,
    and failed/disabled generation leaves capture usable. Queue claims have a 15-minute lease
    renewed every minute by the owning handler, with ownership tokens fencing old completion writes.
-   Stop old worker binaries before deploying migration 0015. Observe abandoned-work recovery and
+   Stop old worker binaries before deploying the job-lease schema (part of the squashed baseline). Observe abandoned-work recovery and
    idempotent effects after a database outage longer than the lease; do not reset all running jobs.
 5. Record actual restored cutoff, recovery duration, mismatches and reviewer decision. Do not
    declare backup readiness from a successful connection or application startup alone.

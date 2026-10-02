@@ -14,6 +14,7 @@ export const badgeVariants = cva('inline-flex items-center gap-1 rounded-full px
       evidence: 'bg-evidence-soft text-evidence',
       hypothesis: 'bg-hypothesis-soft text-hypothesis',
       proposal: 'bg-proposal-soft text-proposal',
+      ai: 'bg-ai-soft text-ai-fg',
       outline: 'border border-dashed border-border-strong text-muted',
     },
   },

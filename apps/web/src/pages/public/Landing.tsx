@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { InstallApp } from '../../components/InstallApp';
 import { ArrowRight, BarChart3, BookOpenCheck, CalendarClock, Check, ClipboardCheck, Hand, HeartHandshake, Lightbulb, MessageCircle, Mic, NotebookPen, ShieldCheck, Sparkles, Star, TriangleAlert, Users } from 'lucide-react';
 import { Button, FadeIn, Stagger, StaggerItem, cn } from '../../components/ui';
 import { Brand } from '../../components/Brand';
@@ -20,7 +21,7 @@ const SEATS = [
   ['Avery S.', [['hand', 2], ['star', 1]]], ['Blake F.', [['bulb', 1]]], ['Casey S.', []], ['Devon D.', [['hand', 1]]],
   ['Emery P.', [['chat', 1]]], ['Finley E.', [['hand', 3], ['star', 1]]], ['Harper M.', []], ['Indigo T.', [['bulb', 1], ['hand', 1]]],
 ] as const;
-const CHIP = { hand: [Hand, 'bg-primary-soft text-primary-soft-fg'], star: [Star, 'bg-warning-soft text-warning-fg'], bulb: [Lightbulb, 'bg-info-soft text-info-fg'], chat: [MessageCircle, 'bg-proposal-soft text-proposal'] } as const;
+const CHIP = { hand: [Hand, 'bg-primary-soft text-primary-soft-fg'], star: [Star, 'bg-success-soft text-success-fg'], bulb: [Lightbulb, 'bg-info-soft text-info-fg'], chat: [MessageCircle, 'bg-proposal-soft text-proposal'] } as const;
 
 /** A static, synthetic preview of Class Pulse for the hero. */
 function ClassPreview() {
@@ -91,6 +92,7 @@ export function Landing() {
                 <Link to="/get-started"><Button size="lg">Start a workspace <ArrowRight /></Button></Link>
                 <Link to="/sign-in"><Button size="lg" variant="secondary">I have an invitation</Button></Link>
               </div>
+              <div className="mt-4"><InstallApp /></div>
             </FadeIn>
           </div>
           <FadeIn delay={0.1}><ClassPreview /></FadeIn>

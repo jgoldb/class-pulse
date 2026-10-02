@@ -85,12 +85,12 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
 
   app.setErrorHandler((err: unknown, req, reply) => {
     if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, details: err.details ?? null });
-    if (err instanceof ZodError) return reply.code(400).send({ error: 'Validation failed', details: err.issues });
+    if (err instanceof ZodError) return reply.code(400).send({ error: validationMessage(err), details: err.issues });
     const e = err as Error & { validation?: unknown; statusCode?: number };
     if (e.validation) return reply.code(400).send({ error: e.message });
     if (e.statusCode && e.statusCode < 500) return reply.code(e.statusCode).send({ error: e.message });
     req.log.error({ err: { message: e.message, name: e.name, stack: e.stack } }, 'unhandled');
-    return reply.code(500).send({ error: 'Internal error' });
+    return reply.code(500).send({ error: 'Something went wrong on our side. Try again in a moment; if it keeps happening, let your administrator know.' });
   });
 
   app.get('/health', async () => ({ ok: true, posture: ctx.config.deploymentPosture, provider: ctx.gate.providerName, model: ctx.aiConfig.model, jobs: ctx.queue.driver }));
@@ -135,4 +135,13 @@ export async function buildServer(ctx: AppContext, opts: { logger?: boolean } = 
   }
 
   return app;
+}
+
+/** A plain-language 400 (Pulsera UX spec §13): what was wrong and where, never a stack of issues. */
+function validationMessage(err: ZodError): string {
+  const issue = err.issues[0];
+  if (!issue) return 'Some details are missing or not valid. Check the form and try again.';
+  const field = issue.path.filter((p) => typeof p === 'string').at(-1);
+  const label = field ? String(field).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase() : '';
+  return label ? `Check ${label}: ${issue.message.charAt(0).toLowerCase()}${issue.message.slice(1)}.` : `${issue.message}.`;
 }

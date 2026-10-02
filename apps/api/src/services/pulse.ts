@@ -22,7 +22,11 @@ export async function pulseSections(ctx: AppContext, actor: Actor) {
   const sections = await teacherSections(ctx.db, actor);
   if (!sections.length) return [];
   const settings = await ctx.db.select({ schoolId: schools.id, timezone: schools.timezone, enabled: organizations.pulseraEnabled }).from(schools).innerJoin(organizations, eq(schools.orgId, organizations.id)).where(inArray(schools.id, sections.map((s) => s.schoolId)));
-  return sections.map((s) => ({ ...s, timezone: settings.find((x) => x.schoolId === s.schoolId)!.timezone, enabled: ctx.config.deploymentPosture === 'demonstration' && settings.some((x) => x.schoolId === s.schoolId && x.enabled) }));
+  return sections.map((s) => ({ ...s, archived: !!s.archivedAt, timezone: settings.find((x) => x.schoolId === s.schoolId)!.timezone, enabled: ctx.config.deploymentPosture === 'demonstration' && settings.some((x) => x.schoolId === s.schoolId && x.enabled) }));
+}
+/** An archived class keeps its records readable, but nothing new is taught or captured in it. */
+function assertNotArchived(section: { archivedAt: Date | null }) {
+  if (section.archivedAt) throw conflict('This class is archived. Restore it from Classes to teach it again.');
 }
 export async function requirePulse(ctx: AppContext, actor: Actor, sectionId: string) {
   const section = (await pulseSections(ctx, actor)).find((s) => s.id === sectionId);
@@ -108,6 +112,7 @@ export async function getSeating(ctx: AppContext, actor: Actor, sectionId: strin
 export async function openSession(ctx: AppContext, actor: Actor, input: SessionInput) {
   const parsed = SessionInput.parse(input);
   const section = await requirePulse(ctx, actor, parsed.sectionId);
+  assertNotArchived(section);
   await validateClassroomText(ctx.db, section.id, { topic: parsed.topic, objective: parsed.objective, tags: parsed.contextTags });
   return ctx.db.transaction(async (tx) => {
     await tx.select().from(classSections).where(eq(classSections.id, section.id)).for('update');
@@ -131,12 +136,13 @@ export async function sessionFor(ctx: AppContext, actor: Actor, id: string) {
 export async function listSessions(ctx: AppContext, actor: Actor, sectionId: string) {
   await requirePulse(ctx, actor, sectionId);
   await trail(ctx.db, actor, 'classroom.read', 'section', sectionId, { purpose: 'sessions' });
-  return ctx.db.select({ id: classSessions.id, date: classSessions.date, topic: classSessions.topic, objective: classSessions.objective, timezone: classSessions.timezone, contextTags: classSessions.contextTags, createdAt: classSessions.createdAt }).from(classSessions).where(and(eq(classSessions.sectionId, sectionId), eq(classSessions.teacherId, actor.userId))).orderBy(desc(classSessions.createdAt)).limit(50);
+  return ctx.db.select({ id: classSessions.id, date: classSessions.date, topic: classSessions.topic, objective: classSessions.objective, timezone: classSessions.timezone, contextTags: classSessions.contextTags, endedAt: classSessions.endedAt, createdAt: classSessions.createdAt }).from(classSessions).where(and(eq(classSessions.sectionId, sectionId), eq(classSessions.teacherId, actor.userId))).orderBy(desc(classSessions.createdAt)).limit(50);
 }
 
 export async function captureEvent(ctx: AppContext, actor: Actor, input: CaptureEvent) {
   const parsed = CaptureEvent.parse(input);
   const session = await sessionFor(ctx, actor, parsed.sessionId);
+  assertNotArchived(await requirePulse(ctx, actor, session.sectionId));
   if (new Date(parsed.observedAt).getTime() > ctx.now().getTime() + 60_000) throw badRequest('Observation cannot be in the future');
   await validateClassroomText(ctx.db, session.sectionId, parsed.observation);
   return ctx.db.transaction(async (tx) => {
@@ -220,5 +226,19 @@ export async function sessionEvents(ctx: AppContext, actor: Actor, sessionId: st
   await trail(ctx.db, actor, 'plane.join', 'session', sessionId, { purpose: 'classroom_events', count: rows.length });
   const links = await ctx.db.select({ learnerKey: learnerLinks.learnerKey, studentId: learnerLinks.studentId }).from(learnerLinks).innerJoin(sectionEnrollments, eq(learnerLinks.studentId, sectionEnrollments.studentId)).where(eq(sectionEnrollments.sectionId, session.sectionId));
   const seating = session.seatingSnapshot.flatMap((p) => { const link = links.find((l) => l.learnerKey === p.learnerKey); return link ? [{ studentId: link.studentId, row: p.row, column: p.column }] : []; });
-  return { session: { id: session.id, date: session.date, topic: session.topic, objective: session.objective, timezone: session.timezone, contextTags: session.contextTags, seatingVersion: session.seatingVersion }, seating, events: rows };
+  return { session: { id: session.id, date: session.date, topic: session.topic, objective: session.objective, timezone: session.timezone, contextTags: session.contextTags, seatingVersion: session.seatingVersion, endedAt: session.endedAt }, seating, events: rows };
+}
+
+/**
+ * End class ("Session complete") or reopen it. Ending is a status for the teacher, not a lock:
+ * confirming, correcting and drafting from the session keep working afterwards, because that is
+ * when most review happens. Only the teacher who opened the session can end it.
+ */
+export async function setSessionEnded(ctx: AppContext, actor: Actor, sessionId: string, ended: boolean) {
+  const session = await sessionFor(ctx, actor, sessionId);
+  if (session.teacherId !== actor.userId) throw forbidden('Only the teacher who opened this session can end it');
+  const endedAt = ended ? session.endedAt ?? ctx.now() : null;
+  await ctx.db.update(classSessions).set({ endedAt }).where(eq(classSessions.id, session.id));
+  await trail(ctx.db, actor, 'classroom.session_end', 'session', session.id, { ended });
+  return { id: session.id, endedAt };
 }

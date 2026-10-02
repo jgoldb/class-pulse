@@ -30,6 +30,7 @@ COPY . .
 # *publishable* key, which is safe in client code by design.
 ARG VITE_CLERK_PUBLISHABLE_KEY
 ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+ENV PWA_DEPLOYMENT=true
 RUN test -n "$VITE_CLERK_PUBLISHABLE_KEY" || (echo "VITE_CLERK_PUBLISHABLE_KEY build arg is required" && exit 1)
 # apps/web/vite.config.ts sets envDir to the repo root, so write the key where Vite looks for
 # it rather than relying on process.env precedence. This file stays in the build stage.

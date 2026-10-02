@@ -4,6 +4,8 @@ import AxeBuilder from '@axe-core/playwright';
 /** WCAG 2 A/AA scan; serious and critical findings fail the walkthrough. */
 async function expectAccessible(page: Page, where: string) {
   // Toasts are excluded: they are scanned mid fade-in, so axe measures partial opacity, not their colour.
+  // Likewise wait for finite transitions (a button that just became enabled fades in over ~150 ms).
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getComputedTiming().iterations === Infinity));
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).exclude('[data-sonner-toaster]').analyze();
   const serious = result.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.flatMap((v) => v.nodes.map((n) => `${where}: ${v.id} ${n.target.join(' ')} ${(n.failureSummary ?? '').replace(/\s+/g, ' ').slice(0, 180)}`))).toEqual([]);
@@ -33,7 +35,7 @@ test('draft evidence, editing, exact-version approval, portal sharing and export
     return respond([]);
   });
   await page.goto('/e2e/pulse-ui.html?route=/teacher/drafts');
-  await page.getByRole('button', { name: /Family message/ }).click();
+  await page.getByRole('button', { name: /^Review Family message/ }).click();
   await expect(page.getByText(/Source 1 · Praise · Robin Example/)).toBeVisible();
   await page.getByRole('button', { name: 'Edit wording', exact: true }).click();
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Today the learner explained a worked example to the class.');
@@ -41,6 +43,9 @@ test('draft evidence, editing, exact-version approval, portal sharing and export
   await expect(page.getByRole('button', { name: 'Approve version 2' })).toBeVisible();
   await page.getByRole('radio', { name: 'Family' }).click();
   await page.getByRole('button', { name: 'Approve version 2' }).click();
+  // Approval is a deliberate second step that names the version and audience.
+  await expect(page.getByRole('group', { name: 'Confirm approval' })).toContainText('Approve version 2 for the family');
+  await page.getByRole('button', { name: 'Confirm approval' }).click();
   await expect(page.getByText('Approved by Ms. Taylor. External delivery: not sent.')).toBeVisible();
   expect(publications[0].portalShared).toBe(false);
   await page.getByRole('button', { name: 'Share approved version in family portal' }).click();
@@ -86,11 +91,11 @@ test('family contribution, multiple-child selection, educator response, and corr
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/e2e/pulse-ui.html?route=/teacher/students');
   const learner = page.getByRole('radio', { name: /Casey Sample/ });
-  if (await learner.isVisible()) await learner.click(); else await page.getByRole('combobox', { name: 'Learner', exact: true }).selectOption('student-1');
+  if (await learner.isVisible()) await learner.click(); else await page.getByRole('combobox', { name: 'Student', exact: true }).selectOption('student-1');
   await page.getByLabel('Your response').fill('Thank you. We can try a similar example in class.');
   await page.getByRole('combobox', { name: 'Decision', exact: true }).selectOption('accepted');
   await page.getByRole('button', { name: 'Save educator response' }).click();
-  await expect(page.getByText('Accepted family report', { exact: true })).toBeVisible();
+  await expect(page.getByText('Family perspective · accepted', { exact: true })).toBeVisible();
   await expectAccessible(page, 'students');
   await page.screenshot({ path: `e2e/screenshots/classroom-memory-${testInfo.project.name}.png`, fullPage: true });
   await page.goto('/e2e/pulse-ui.html?route=/family');
@@ -133,15 +138,16 @@ test('no-plan capture, failed-response retry, correction and draft navigation', 
     return respond([]);
   });
   await page.goto('/e2e/pulse-ui.html');
-  await expect(page.getByRole('heading', { name: 'Grade 6 · Science', exact: true })).toBeVisible();
+  await expect(page.getByTestId('class-identity')).toContainText('Grade 6 · Science');
+  await expect(page.getByTestId('session-ready')).toContainText('Ready to teach');
   await page.getByLabel('Lesson topic').fill('Fractions');
-  await page.getByRole('button', { name: 'Open class', exact: true }).click();
+  await page.getByRole('button', { name: 'Start class', exact: true }).click();
   const student = page.getByRole('option', { name: /Robin Example.*No observations yet/ });
   await student.focus(); await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'Participation', exact: true }).click();
+  await page.getByRole('button', { name: 'Participated', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Retry save', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Retry save', exact: true }).click();
-  await expect(page.getByText('Contributed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Contributed', { exact: true }).filter({ visible: true }).first()).toBeVisible();
   expect(requests).toHaveLength(2); expect(requests[0]).toBe(requests[1]); expect(events).toHaveLength(1);
   await expect(page.getByRole('option', { name: /Robin Example.*1 participation/ })).toBeVisible();
   await page.getByRole('button', { name: /More actions for Robin Example/ }).click();
@@ -152,14 +158,14 @@ test('no-plan capture, failed-response retry, correction and draft navigation', 
   await expect(page.getByText('version 2', { exact: false })).toBeVisible();
   expect(events[0].studentId).toBe('student-1');
   await page.getByRole('radio', { name: /List/ }).click();
-  await expect(page.getByRole('heading', { name: 'Class roster' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Class list' })).toBeVisible();
   await expectAccessible(page, 'class pulse');
   await page.screenshot({ path: `e2e/screenshots/pulsera-${testInfo.project.name}.png`, fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole('button', { name: /Positive behavior note/ }).click();
+  await page.getByRole('button', { name: 'Positive note', exact: true }).click();
   expect(drafted).toEqual([{ kind: 'positive_note', sources: [{ eventId: events[0].id, revision: 2 }] }]);
-  await page.getByRole('link', { name: 'Open drafts', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Drafts', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Open Drafts', exact: true }).last().click();
+  await expect(page.getByRole('heading', { name: 'You’re all caught up', exact: true })).toBeVisible();
 });
 
 test('Tomorrow Ready bundle and My Pulse render accessibly with their data', async ({ page }, testInfo) => {

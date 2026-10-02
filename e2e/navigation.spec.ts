@@ -15,20 +15,24 @@ const WALKS: Array<{ as: AccountKey; home: string; links: Array<{ name: RegExp; 
     home: '/teacher',
     links: [
       // Class Pulse is the home page; case work (Cases, Patterns, Reviews, Family requests) is
-      // reached from Support.
-      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
+      // reached from Support work.
+      { name: /^Support work$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Cases/, expectText: 'One case per student' },
-      { name: /^Students$/, expectText: 'Manage class roster' },
-      { name: /^Drafts$/, expectText: 'What happened, what Pulsera drafted' },
-      { name: /^Tomorrow$/, expectText: 'Tomorrow Ready' },
-      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
+      { name: /^Classes$/, expectText: 'My Classes' },
+      { name: /^Students$/, expectText: 'Strengths first' },
+      { name: /^Drafts/, expectText: 'Pulsera prepares the paperwork' },
+      { name: /^Tomorrow/, expectText: 'Tomorrow Ready' },
+      { name: /^Families$/, expectText: 'Who is connected at home' },
+      { name: /^Reports$/, expectText: 'Evidence packets drafted' },
+      { name: /^Settings$/, expectText: 'Quick-pick wording' },
+      { name: /^Support work$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Patterns/, expectText: 'Pattern queue' },
-      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
+      { name: /^Support work$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Reviews/, expectText: 'Plan reviews' },
-      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
+      { name: /^Support work$/, expectText: /Good (morning|afternoon|evening)/ },
       { name: /^Family requests/, expectText: 'Family requests' },
       { name: /^Class Pulse$/, expectText: /Seating chart/ },
-      { name: /^Support$/, expectText: /Good (morning|afternoon|evening)/ },
+      { name: /^Support work$/, expectText: /Good (morning|afternoon|evening)/ },
     ],
   },
   {

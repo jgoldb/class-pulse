@@ -1,2 +1,0 @@
-ALTER TABLE "working"."review_cycles" ADD COLUMN "source_invalidated_at" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "working"."review_cycles" ADD COLUMN "evidence_version" integer DEFAULT 1 NOT NULL;

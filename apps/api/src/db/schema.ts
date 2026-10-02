@@ -41,6 +41,17 @@ export const classSections = identified.table('class_sections', {
   gradeLevel: text('grade_level').notNull(),
   /** Default schedule tag for quick entry, e.g. "period_3". */
   periodTag: text('period_tag'),
+  /**
+   * Teacher-editable display metadata (Pulsera UX spec §9). None of it reaches the model or the
+   * pattern engine: sessions carry their own topic and context tags, and the section id is stable,
+   * so renaming a class never touches its history.
+   */
+  courseName: text('course_name'),
+  room: text('room'),
+  accent: text('accent'),
+  /** Archived classes keep every record but take no new sessions or captures. */
+  archivedAt: ts('archived_at'),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
 });
 
 export const users = identified.table(
@@ -208,6 +219,8 @@ export const classSessions = working.table('class_sessions', {
   date: text('date').notNull(), timezone: text('timezone').notNull(),
   topic: text('topic').notNull(), objective: text('objective').notNull(), contextTags: jsonb('context_tags').$type<string[]>().notNull(),
   seatingVersion: integer('seating_version').notNull(), seatingSnapshot: jsonb('seating_snapshot').$type<SeatSnapshot[]>().notNull(),
+  /** Set when the teacher ends class ("Session complete"). Review and late captures still work. */
+  endedAt: ts('ended_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
 }, (t) => [uniqueIndex('session_request_idx').on(t.teacherId, t.requestId), index('session_section_date_idx').on(t.sectionId, t.date)]);
 export const classroomEvents = working.table('classroom_events', {

@@ -9,7 +9,7 @@ const TILE = 'relative flex min-h-14 flex-col items-center justify-center gap-0.
 const TILE_ICON = 'inline-flex size-7 shrink-0 items-center justify-center rounded-lg sm:size-8 lg:size-7';
 
 /** Break points for the two long labels so they wrap cleanly on a phone-width dock. */
-const TILE_LABEL: Partial<Record<ObservationKind, string>> = { participation: 'Partici­pation', understanding: 'Under­standing' };
+const TILE_LABEL: Partial<Record<ObservationKind, string>> = { participation: 'Partici­pated', understanding: 'Under­standing' };
 
 /** Single-letter capture shortcuts, active while a student is selected and nothing else has focus. */
 export const SHORTCUTS: Array<{ key: string; action: 'participation' | 'praise' | 'understanding' | 'check_in' | 'behavior' | 'note' | 'voice'; label: string }> = [
@@ -36,9 +36,9 @@ const Tile = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElemen
   const meta = OBSERVATION_META[kind];
   const Icon = meta.icon;
   return (
-    <button ref={ref} type="button" aria-label={label ?? meta.label} aria-keyshortcuts={shortcut} {...props} className={cn(TILE, shortcut && 'lg:[@media(hover:hover)]:pr-5', 'transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-sm active:scale-[0.97] data-[state=open]:border-primary data-[state=open]:ring-2 data-[state=open]:ring-primary/20', className)}>
+    <button ref={ref} type="button" aria-label={label ?? meta.short} aria-keyshortcuts={shortcut} {...props} className={cn(TILE, shortcut && 'lg:[@media(hover:hover)]:pr-5', 'transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-sm active:scale-[0.97] data-[state=open]:border-primary data-[state=open]:ring-2 data-[state=open]:ring-primary/20', className)}>
       <span className={cn(TILE_ICON, meta.chip)}><Icon className="size-4" /></span>
-      <span className="flex items-center gap-0.5 leading-tight">{label ?? (TILE_LABEL[kind] ? <><span className="lg:hidden">{TILE_LABEL[kind]}</span><span className="max-lg:hidden">{meta.label}</span></> : meta.label)}{trailing}</span>
+      <span className="flex items-center gap-0.5 leading-tight">{label ?? (TILE_LABEL[kind] ? <><span className="lg:hidden">{TILE_LABEL[kind]}</span><span className="max-lg:hidden">{meta.short}</span></> : meta.short)}{trailing}</span>
       {shortcut && <kbd className="pointer-events-none absolute right-1 top-1/2 hidden -translate-y-1/2 rounded border border-border bg-sunken px-1 font-mono text-[10px] font-medium text-subtle lg:[@media(hover:hover)]:block">{shortcut}</kbd>}
     </button>
   );
@@ -120,8 +120,8 @@ export function VocabularyDialog({ open, onOpenChange, vocabulary, defaults, onS
  * the selected student (an explicit tap is the confirmation, docs/09); anything written in a
  * dialog can instead be saved for review.
  */
-export function CaptureDock({ student, sessionOpen, topic, disabled, saving, vocabulary, voice, onQuick, onDetailed, onVoice, onEditVocabulary }: {
-  student: { id: string; displayName: string } | null; sessionOpen: boolean; topic: string; disabled: boolean; saving: boolean;
+export function CaptureDock({ student, sessionOpen, closedReason, headerAction, topic, disabled, saving, vocabulary, voice, onQuick, onDetailed, onVoice, onEditVocabulary }: {
+  student: { id: string; displayName: string } | null; sessionOpen: boolean; closedReason?: string; headerAction?: ReactNode; topic: string; disabled: boolean; saving: boolean;
   vocabulary: CaptureVocabulary; voice: { enabled: boolean; reason: string };
   onQuick(o: ClassroomObservation, label: string): void; onDetailed(kind: ObservationKind): void; onVoice(): void; onEditVocabulary(): void;
 }) {
@@ -160,12 +160,13 @@ export function CaptureDock({ student, sessionOpen, topic, disabled, saving, voc
         {student ? <Avatar name={student.displayName} size="sm" /> : <span className="size-7 rounded-full border border-dashed border-border-strong" />}
         <div className="min-w-0 flex-1 leading-tight">
           <div className="truncate text-sm font-semibold">{student ? student.displayName : 'Select a student'}</div>
-          <div className="flex items-center gap-1 text-[11px] text-muted">{saving && <Loader2 className="size-3 animate-spin" />}{!sessionOpen ? 'Open a class session to capture' : saving ? 'Saving…' : student ? 'Tap to record · each tap is confirmed' : 'Tap a seat on the chart'}</div>
+          <div className="flex items-center gap-1 text-[11px] text-muted">{saving && <Loader2 className="size-3 animate-spin" />}{!sessionOpen ? closedReason ?? 'Start class to capture' : saving ? 'Saving…' : student ? 'Tap to record · each tap is confirmed' : 'Tap a student on the chart'}</div>
         </div>
+        {headerAction}
         <Tooltip content="Keyboard shortcuts (?)"><Button size="icon" variant="ghost" className="hidden size-7 lg:[@media(hover:hover)]:inline-flex" aria-label="Keyboard shortcuts" onClick={() => setHelp(true)}><Keyboard /></Button></Tooltip>
       </div>
       <div className={cn('grid grid-cols-4 gap-1.5 lg:grid-cols-2', saving && 'cursor-progress [&_button:disabled]:opacity-100', !student && 'max-lg:hidden')}>
-        <Tile kind="participation" disabled={off} shortcut={keyFor('participation')} onClick={() => onQuick({ kind: 'participation', action: 'contributed', note: '' }, 'Participation')} />
+        <Tile kind="participation" disabled={off} shortcut={keyFor('participation')} onClick={() => onQuick({ kind: 'participation', action: 'contributed', note: '' }, 'Participated')} />
         <QuickPick kind="praise" title="Praise for" options={vocabulary.praise} disabled={off} open={picker === 'praise'} onOpenChange={open('praise')} onPick={(strength) => onQuick({ kind: 'praise', strength, note: '' }, 'Praise')} onCustom={() => onDetailed('praise')} onEdit={onEditVocabulary} />
         <UnderstandingPick topic={topic} disabled={off} open={picker === 'understanding'} onOpenChange={open('understanding')} onPick={(concept, evidence) => onQuick({ kind: 'understanding', concept, evidence, note: '' }, 'Understanding')} onCustom={() => onDetailed('understanding')} />
         <QuickPick kind="check_in" title="Check-in" options={vocabulary.checkIn} disabled={off} open={picker === 'check_in'} onOpenChange={open('check_in')} onPick={(observation) => onQuick({ kind: 'check_in', observation, note: '' }, 'Check-in')} onCustom={() => onDetailed('check_in')} onEdit={onEditVocabulary} />
@@ -173,7 +174,7 @@ export function CaptureDock({ student, sessionOpen, topic, disabled, saving, voc
         <Tile kind="note" disabled={off} shortcut={keyFor('note')} onClick={() => onDetailed('note')} />
         {voice.enabled ? (
           <button type="button" disabled={off} onClick={onVoice} aria-label="Voice" aria-keyshortcuts="V" className={cn(TILE, 'transition-all hover:-translate-y-0.5 hover:border-border-strong lg:[@media(hover:hover)]:pr-6')}>
-            <span className={cn(TILE_ICON, 'bg-danger-soft text-danger-fg')}><Mic className="size-4" /></span>Voice
+            <span className={cn(TILE_ICON, 'bg-primary-soft text-primary-soft-fg')}><Mic className="size-4" /></span>Voice
             <kbd className="pointer-events-none absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded border border-border bg-sunken px-1 font-mono text-[10px] font-medium text-subtle lg:[@media(hover:hover)]:block">V</kbd>
           </button>
         ) : (

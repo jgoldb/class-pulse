@@ -8,7 +8,8 @@ test.describe.configure({ mode: 'serial' });
 
 test('teacher landing is Class Pulse, and Support shows what needs a decision and the roster', async ({ page, signInAs }) => {
   await signInAs('teacher');
-  await expect(page.getByText('Class Pulse™')).toBeVisible();
+  await expect(page.getByTestId('class-identity')).toBeVisible();
+  await expect(page.getByTestId('class-selector')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Seating chart' })).toBeVisible();
   await page.goto('/teacher/support');
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening), Dana/);

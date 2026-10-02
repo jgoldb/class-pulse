@@ -19,7 +19,8 @@ await verifyE2eEnvironment();
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: '**/pulsera-ui.spec.ts',
+  // These run under their own configs (playwright.pulse.config.ts, playwright.pwa.config.ts).
+  testIgnore: ['**/pulsera-ui.spec.ts', '**/teacher-workspace.spec.ts', '**/pwa.spec.ts', '**/pwa-runtime.spec.ts'],
   globalSetup: './e2e/global-setup.ts',
   timeout: 180_000,
   expect: { timeout: 15_000 },

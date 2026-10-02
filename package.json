@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "e2e": "playwright test",
     "e2e:pulse": "playwright test --config playwright.pulse.config.ts",
+    "e2e:pwa": "npm run build --workspace apps/web && playwright test --config playwright.pwa.config.ts",
     "e2e:fast": "E2E_SKIP_SEED=1 playwright test",
     "e2e:report": "playwright show-report e2e/report",
     "evals": "npm run evals --workspace packages/ai",

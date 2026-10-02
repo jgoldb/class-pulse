@@ -53,7 +53,7 @@ export function Onboarding() {
       forgetCheckout();
       setCreated(true);
       await refresh();
-      nav(teacherSetup ? '/teacher/class?welcome=1' : '/admin?welcome=1', { replace: true });
+      nav(teacherSetup ? '/teacher/classes?welcome=1' : '/admin?welcome=1', { replace: true });
     },
   });
   const err = create.error as ApiError | null;
@@ -70,7 +70,7 @@ export function Onboarding() {
 
   if (!clerkLoaded || loading) return <div className="mx-auto max-w-2xl p-6"><PageSkeleton /></div>;
   if (!signedIn) return <Navigate to={checkout ? `/sign-up?checkout=${checkout}` : '/sign-in'} replace />;
-  if (me?.provisioned) return <Navigate to={created ? (teacherSetup ? '/teacher/class?welcome=1' : '/admin?welcome=1') : roleBase} replace />;
+  if (me?.provisioned) return <Navigate to={created ? (teacherSetup ? '/teacher/classes?welcome=1' : '/admin?welcome=1') : roleBase} replace />;
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_top,var(--primary-soft),var(--bg)_55%)]">

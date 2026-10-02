@@ -1,7 +1,7 @@
 import { Command } from 'cmdk';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, ClipboardList, Home, Inbox, Plus, Sparkles, User, Zap } from 'lucide-react';
+import { BookOpen, ClipboardList, FileText, HeartHandshake, Home, Inbox, LayoutGrid, Plus, Settings, Sparkles, User, Zap } from 'lucide-react';
 import { Dialog, DialogContent } from './ui/dialog';
 import { api } from '../lib/api';
 import type { CaseListItem, RosterStudent } from '../lib/types';
@@ -27,8 +27,20 @@ export function CommandPalette({ open, onOpenChange, surface }: { open: boolean;
           <Command.Input autoFocus placeholder="Jump to a student, a screen, or an action…" className="w-full border-b border-border bg-transparent px-4 py-3 text-sm outline-none placeholder:text-subtle" />
           <Command.List className="max-h-80 overflow-y-auto p-2">
             <Command.Empty className="px-3 py-6 text-center text-sm text-muted">Nothing found.</Command.Empty>
+            {surface === 'teacher' && (
+              <Command.Group heading="Go to">
+                <Item icon={<Home />} onSelect={() => go('/teacher')}>Class Pulse</Item>
+                <Item icon={<LayoutGrid />} onSelect={() => go('/teacher/classes')}>My Classes</Item>
+                <Item icon={<Plus />} onSelect={() => go('/teacher/classes?add=1')}>Add a class</Item>
+                <Item icon={<Inbox />} onSelect={() => go('/teacher/drafts')}>Drafts</Item>
+                <Item icon={<Sparkles />} onSelect={() => go('/teacher/tomorrow')}>Tomorrow</Item>
+                <Item icon={<HeartHandshake />} onSelect={() => go('/teacher/families')}>Families</Item>
+                <Item icon={<FileText />} onSelect={() => go('/teacher/reports')}>Reports</Item>
+                <Item icon={<Settings />} onSelect={() => go('/teacher/settings')}>Settings</Item>
+              </Command.Group>
+            )}
             {teacherish && (
-              <Command.Group heading="Actions">
+              <Command.Group heading={surface === 'teacher' ? 'Support work' : 'Actions'}>
                 <Item icon={<Plus />} onSelect={() => go(`${base}/intake`)}>
                   New intake
                 </Item>
@@ -48,7 +60,7 @@ export function CommandPalette({ open, onOpenChange, surface }: { open: boolean;
                 {roster.data!.map((s) => {
                   const c = byStudent.get(s.id);
                   return (
-                    <Item key={s.id} icon={<User />} onSelect={() => go(c ? `${base}/cases/${c.caseKey}` : `${base}/intake?studentId=${s.id}`)} hint={c ? (c.plan?.status === 'active' ? 'open case' : 'draft') : 'start intake'}>
+                    <Item key={s.id} icon={<User />} onSelect={() => go(surface === 'teacher' ? `/teacher/students?student=${s.id}` : c ? `${base}/cases/${c.caseKey}` : `${base}/intake?studentId=${s.id}`)} hint={surface === 'teacher' ? 'profile' : c ? (c.plan?.status === 'active' ? 'open case' : 'draft') : 'start intake'}>
                       {s.displayName} <span className="text-subtle">· {s.sectionName}</span>
                     </Item>
                   );

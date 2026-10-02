@@ -155,9 +155,16 @@ export interface ReviewCycleFull {
 export interface ClassroomSection {
   id: string;
   name: string;
+  courseName: string | null;
   gradeLevel: string;
   periodTag: string | null;
+  room: string | null;
+  accent: string | null;
   schoolId: string;
+  archivedAt: string | null;
+  updatedAt: string;
+  teachers: Array<{ id: string; name: string }>;
+  today: { status: 'not_started' | 'in_progress' | 'complete'; sessionId: string | null; observations: number };
 }
 
 export interface ClassroomStudent {

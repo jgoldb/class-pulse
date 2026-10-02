@@ -81,7 +81,7 @@ export function ActivityFeed({ events, drafts, nameOf, selectedStudent, busy, on
                       <div className="mt-2 space-y-1">
                         {linked.map((d) => (
                           <Link key={d.id} to={`/teacher/drafts?draft=${d.id}`} className="flex flex-wrap items-center gap-2 rounded-lg bg-sunken/70 px-2.5 py-1.5 text-xs hover:bg-sunken">
-                            <Sparkles className="size-3.5 text-proposal" />
+                            <Sparkles className="size-3.5 text-ai-fg" />
                             <span className="font-medium">{ARTIFACT_META[d.kind].label}</span>
                             <TeacherConfirm compact stage={draftStage(d)} />
                             <ArrowRight className="ml-auto size-3.5 text-muted" />
@@ -92,7 +92,7 @@ export function ActivityFeed({ events, drafts, nameOf, selectedStudent, busy, on
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {event.status === 'pending' && <Button size="sm" disabled={busy} onClick={() => onConfirm(event)}>Confirm this version</Button>}
                       {options.map((k) => (
-                        <Button key={k} size="sm" variant="soft" disabled={busy} onClick={() => void onDraft(k, [event])}><Sparkles /> {ARTIFACT_META[k].produces}</Button>
+                        <Button key={k} size="sm" variant="ai" disabled={busy} onClick={() => void onDraft(k, [event])}><Sparkles /> {ARTIFACT_META[k].produces}</Button>
                       ))}
                       <Dropdown>
                         <DropdownTrigger asChild><Button size="icon" variant="ghost" className="ml-auto size-8" aria-label={`More actions for ${nameOf(event.studentId)}’s ${meta.label.toLowerCase()}`} disabled={busy}><MoreHorizontal /></Button></DropdownTrigger>

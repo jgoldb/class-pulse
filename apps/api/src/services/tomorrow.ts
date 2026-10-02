@@ -31,7 +31,7 @@ export async function enqueueTomorrowSchedules(ctx: AppContext) {
     if (!user) continue;
     const actor = await buildActor(ctx.db, user);
     let timezone: string;
-    try { timezone = (await requirePulse(ctx, actor, schedule.sectionId)).timezone; } catch { continue; }
+    try { const section = await requirePulse(ctx, actor, schedule.sectionId); if (section.archivedAt) continue; timezone = section.timezone; } catch { continue; }
     await ctx.db.transaction(async (tx) => {
       const [current] = await tx.select().from(tomorrowSchedules).where(and(eq(tomorrowSchedules.sectionId, schedule.sectionId), eq(tomorrowSchedules.teacherId, schedule.teacherId))).for('update');
       const due = scheduleDue(ctx.now(), timezone, current!.settings, current!.lastPreparedDate);

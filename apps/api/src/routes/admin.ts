@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { runClassroomEvals } from '@class-pulse/ai/evals';
-import { AI_SURFACES, PATTERN_DEFINITION_STATUSES, newId, type PromptVersion } from '@class-pulse/domain';
+import { AI_SURFACES, PATTERN_DEFINITION_STATUSES, SECTION_PERIODS, newId, type PromptVersion } from '@class-pulse/domain';
 import { runEvals } from '@class-pulse/ai/evals';
 import { modelResolverFromConfig } from '@class-pulse/ai';
 import type { AppContext } from '../context';
@@ -87,7 +87,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // ---- School structure (manual until an SIS import exists — open question #3) ----------------
   app.post('/api/admin/sections', async (req) => {
-    const body = z.object({ schoolId: z.string(), name: z.string().min(1).max(120), gradeLevel: z.string().min(1).max(20), periodTag: z.string().nullable().optional() }).parse(req.body);
+    const body = z.object({ schoolId: z.string(), name: z.string().min(1).max(120), gradeLevel: z.string().min(1).max(20), periodTag: z.enum(SECTION_PERIODS).nullable().optional() }).parse(req.body);
     if (!req.actor!.scope.adminSchoolIds.has(body.schoolId)) throw forbidden('School is outside your administration');
     const id = newId();
     await ctx.db.insert(classSections).values({ id, schoolId: body.schoolId, name: body.name, gradeLevel: body.gradeLevel, periodTag: body.periodTag ?? null });

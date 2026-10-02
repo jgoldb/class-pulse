@@ -20,7 +20,9 @@ support plans with deterministic pattern detection and scheduled reviews — now
 evidence. Detection is deterministic; interpretation is generative; decisions are human.
 
 **Status:** the Pulsera implementation guide is implemented in full (see
-[11 — Pulsera guide alignment](docs/11-pulsera-guide-alignment.md)) on real infrastructure (Clerk,
+[11 — Pulsera guide alignment](docs/11-pulsera-guide-alignment.md)), as is the visual and UX
+specification — calm blue/teal/violet design, Class Pulse as the teacher's home, editable classes
+and rosters (see [12 — visual and UX alignment](docs/12-pulsera-visual-ux-alignment.md)) — on real infrastructure (Clerk,
 Neon Postgres, OpenAI). A plain deploy is enough: Class Pulse is on for synthetic workspaces and
 the evaluated classroom prompt activates on boot. Voice capture deliberately stays off until a
 school records its provider approval. Real-student pilots still need the school sign-offs in the
@@ -88,6 +90,35 @@ and revocable. Staff roles, which take an educator seat, are invited by an admin
 signs in.
 
 ## Verify
+
+### Install on a desktop or phone
+
+Pulsera is an installable PWA when deployed over HTTPS.
+Choose **Install app** on the landing page or in the app's sidebar/mobile menu.
+Chrome and Edge offer a native install prompt when available. On iPhone/iPad, open in
+Safari and choose **Share → Add to Home Screen**, keeping **Open as Web App** enabled
+if shown. On Mac, Safari supports **File → Add to Dock**.
+
+The Docker deployment enables `PWA_DEPLOYMENT=true` at build time. Only those builds emit
+and register a service worker, and registration also requires HTTPS on a non-localhost origin.
+Local development and production previews remove any earlier Pulsera worker and offline cache.
+Only the public connection-recovery screen is cached; classroom records, authentication,
+and API responses are never cached by the worker. Saving changes requires a connection.
+
+Every build stamps the client and `version.json` with the same release ID. Before rendering
+editable screens, the deployed app checks the server without using the cache (up to three
+seconds), then reloads once if a newer release is found. A versioned URL bypasses cached HTML;
+a per-release guard prevents reload loops during a rolling deployment. Failed/offline checks
+allow the app to start. The worker also updates on startup and uses a release-specific cache.
+
+**Check for updates** is beside the install option in the sidebar/mobile menu. The deployed
+app polls every five minutes while visible and online, and checks on returning to the app or
+reconnecting (at most once per minute). Later updates show **Update available — Reload**;
+they never interrupt an active session automatically. A notice is also visible above the
+classroom on phones. Save changes before applying an update.
+
+Run `npm run e2e:pwa` to verify the manifest, icons, local worker exclusion, deployment lifecycle,
+offline cache boundary, release checks, reload guards, and desktop/phone install/update UI.
 
 ```bash
 npm test              # 172 unit/integration tests: domain, policy matrix, PII, guardrails,

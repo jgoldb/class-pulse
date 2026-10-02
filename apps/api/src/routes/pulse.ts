@@ -23,7 +23,7 @@ import { approveArtifact, bulkDecide, decideArtifact, editArtifact, exportArtifa
 import type { AppContext } from '../context';
 import { badRequest, forbidden } from '../context';
 import { audit } from '../services/audit';
-import { captureEvent, configurePulse, confirmEvent, getSeating, listSessions, openSession, pulseSections, reviseEvent, saveSeating, sessionEvents, withdrawEvent } from '../services/pulse';
+import { captureEvent, configurePulse, confirmEvent, getSeating, listSessions, openSession, pulseSections, reviseEvent, saveSeating, sessionEvents, setSessionEnded, withdrawEvent } from '../services/pulse';
 
 const Id = z.object({ id: z.string().uuid() });
 const Version = z.object({ expectedRevision: z.number().int().positive() }).strict();
@@ -129,6 +129,7 @@ export function registerPulseRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/api/pulse/sessions', (req) => listSessions(ctx, req.actor!, z.object({ sectionId: z.string() }).parse(req.query).sectionId));
   app.post('/api/pulse/sessions', (req) => openSession(ctx, req.actor!, SessionInput.parse(req.body)));
   app.get('/api/pulse/sessions/:id', (req) => sessionEvents(ctx, req.actor!, Id.parse(req.params).id));
+  app.post('/api/pulse/sessions/:id/end', (req) => setSessionEnded(ctx, req.actor!, Id.parse(req.params).id, z.object({ ended: z.boolean() }).strict().parse(req.body).ended));
   app.post('/api/pulse/events', (req) => captureEvent(ctx, req.actor!, CaptureEvent.parse(req.body)));
   app.post('/api/pulse/events/:id/revise', (req) => reviseEvent(ctx, req.actor!, Id.parse(req.params).id, ReviseEvent.parse(req.body)));
   app.post('/api/pulse/events/:id/confirm', (req) => confirmEvent(ctx, req.actor!, Id.parse(req.params).id, Version.parse(req.body).expectedRevision));

@@ -2,16 +2,17 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TomorrowSchedule } from '@class-pulse/domain';
 import { api } from '../lib/api';
+import { classTitle, usePulseSections } from '../lib/classes';
 import { Button, Card, CardBody, Input, Textarea } from './ui';
 
 type Settings = { settings: TomorrowSchedule; timezone: string; lastResult: string | null; targetDate: string | null };
 export function TomorrowSettings() {
-  const q = useQuery({ queryKey: ['pulse-sections'], queryFn: () => api.get<Array<{ id: string; name: string; enabled: boolean }>>('/api/pulse/sections') });
+  const q = usePulseSections();
   const [chosen, setChosen] = useState('');
-  const sections = (q.data ?? []).filter((s) => s.enabled);
+  const sections = (q.data ?? []).filter((s) => s.enabled && !s.archived);
   const sectionId = sections.some((s) => s.id === chosen) ? chosen : sections[0]?.id;
   return <div className="mb-5 space-y-3">{sectionId && <>
-    <label className="block text-sm">Preparation schedule for<select className="ml-2 min-h-10 rounded border border-border bg-elevated px-3" value={sectionId} onChange={(e) => setChosen(e.target.value)}>{sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+    <label className="block text-sm">Preparation schedule for<select className="ml-2 min-h-10 rounded-md border border-border bg-elevated px-3" value={sectionId} onChange={(e) => setChosen(e.target.value)}>{sections.map((s) => <option key={s.id} value={s.id}>{classTitle(s)}</option>)}</select></label>
     <Schedule key={sectionId} sectionId={sectionId} />
   </>}</div>;
 }

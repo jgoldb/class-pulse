@@ -17,7 +17,7 @@ export function DialogContent({ className, children, title, description, hideClo
       <Overlay />
       <DialogPrimitive.Content
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-elevated p-6 shadow-lg outline-none animate-pop',
+          'fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-border bg-elevated p-6 shadow-lg outline-none animate-pop',
           className,
         )}
       >
@@ -35,16 +35,18 @@ export function DialogContent({ className, children, title, description, hideClo
 }
 
 /** Side sheet, used for mobile navigation and for editing panels. */
-export function SheetContent({ className, children, title, side = 'right' }: { className?: string; children: ReactNode; title: ReactNode; side?: 'left' | 'right' | 'bottom' }) {
+export function SheetContent({ className, children, title, description, side = 'right' }: { className?: string; children: ReactNode; title: ReactNode; description?: ReactNode; side?: 'left' | 'right' | 'bottom' }) {
   const pos = { left: 'inset-y-0 left-0 h-full w-[85vw] max-w-sm border-r', right: 'inset-y-0 right-0 h-full w-[92vw] max-w-xl border-l', bottom: 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl border-t' }[side];
   return (
     <DialogPrimitive.Portal>
       <Overlay />
       <DialogPrimitive.Content className={cn('fixed z-50 overflow-y-auto border-border bg-elevated p-5 shadow-lg outline-none animate-fade-up', pos, className)}>
-        <div className="mb-4 flex items-center justify-between">
-          <DialogPrimitive.Title className="text-base font-semibold">{title}</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">{title}</DialogPrimitive.Description>
-          <DialogPrimitive.Close className="rounded-md p-1.5 text-muted hover:bg-sunken hover:text-fg" aria-label="Close">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <DialogPrimitive.Title className="text-base font-semibold">{title}</DialogPrimitive.Title>
+            {description ? <DialogPrimitive.Description className="mt-0.5 text-sm text-muted">{description}</DialogPrimitive.Description> : <DialogPrimitive.Description className="sr-only">{title}</DialogPrimitive.Description>}
+          </div>
+          <DialogPrimitive.Close className="shrink-0 rounded-md p-2 text-muted hover:bg-sunken hover:text-fg" aria-label="Close">
             <X className="size-4" />
           </DialogPrimitive.Close>
         </div>
